@@ -113,7 +113,6 @@
           x:p.x*100,y:p.y*100,size:p.size*100,rotation:p.rotation,url:''});
       }
     }
-    if(layout[storyIndex]) layout[storyIndex].caption=[previous.title,previous.note].filter(Boolean).join('\n');
     return {items,photo:null,diaryLayout:layout,diaryLayoutVersion};
   }
 
@@ -127,7 +126,7 @@
       if(!draft) elements.edit.click();
       if(!draft) throw new Error('다이어리 편집을 시작하지 못했어요.');
       if(asset.kind==='photo') {
-        draftDiary.push({file:await resource(assetRef(id,'thumbnail')),x:20,y:20,size:45,tape:'kraft',caption:asset.name});
+        draftDiary.push({file:await resource(assetRef(id,'thumbnail')),x:20,y:20,size:45,tape:'kraft',caption:''});
         selectedDiaryPhoto=draftDiary.length-1;
         renderDiary();syncDiaryControls();
       } else {

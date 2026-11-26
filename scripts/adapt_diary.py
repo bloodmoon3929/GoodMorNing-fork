@@ -2,6 +2,19 @@
 from pathlib import Path
 
 def adapt(html):
+    reference = Path(__file__).resolve().parent.parent / 'server/reference'
+    photos = (reference / 'diary_photos.js').read_text(encoding='utf-8')
+    photo_css = (reference / 'diary_photos.css').read_text(encoding='utf-8')
+    html = html.replace('</head>', '<style>' + photo_css + '</style>\n</head>', 1)
+    html = html.replace('const homeLayoutVersion = 3;', photos + '\nconst homeLayoutVersion = 3;', 1)
+    html = html.replace("    caption.textContent = photo.caption ?? (index === storyIndex && !newDiaryPage ? story.title : '');\n    caption.title = caption.textContent;", "    renderPolaroidCaption(card, photo, index, blank);")
+    html = html.replace("!photo.removed && (index === storyIndex || index >= stories.length) ? [index] : []", "!photo.removed && hasPolaroidImage(photo, index) && (index === storyIndex || index >= stories.length) ? [index] : []")
+    html = html.replace("caption.addEventListener('input', () => { const photo = selected(); if (photo) { photo.caption = caption.value; renderDiary(); } });", "caption.addEventListener('input', () => { const photo = selected(); if (photo && hasPolaroidImage(photo, selectedDiaryPhoto)) { photo.caption = caption.value; renderDiary(); } });")
+    html = html.replace('>사진 추가</button>', '>폴라로이드 추가</button>')
+    html = html.replace('사진 메모 <input id="diary-caption-input"', '폴라로이드 아래 메모 <input id="diary-caption-input"')
+    html = html.replace('placeholder="이 사진에 남길 말"', 'placeholder="사진 아래 흰 여백에 남길 말"')
+    html = html.replace('        layout[index].file = file;', "        layout[index].file = file;\n        layout[index].caption ??= '';")
+    html = html.replace('          base.file = file;', "          base.file = file;\n          base.caption ??= '';")
     html = html.replace('if (mountedBoard) {\n  const tiltButton', 'if (mountedBoard && !demo) {\n  const tiltButton', 1)
     motion = (Path(__file__).resolve().parent.parent / 'server/reference/diary_motion.js').read_text(encoding='utf-8')
     html = html.replace('const homeLayoutVersion = 3;', motion + '\nconst homeLayoutVersion = 3;', 1)

@@ -54,6 +54,7 @@ document.addEventListener('click',event=>{
 </script>'''
 html=html.replace('</body>',bridge+'</body>')
 html=adapt(html)
+shutil.copytree(ROOT/'server/reference/fonts',REF/'fonts',dirs_exist_ok=True)
 shutil.copy2(ROOT/'server/reference/diary_bridge.js',REF/'diary_bridge.js')
 (REF/'index.html').write_text(html,encoding='utf-8')
 (REF/'source.css').write_text(css,encoding='utf-8')

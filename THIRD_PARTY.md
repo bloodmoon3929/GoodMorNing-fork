@@ -1,5 +1,7 @@
 # Sources and notices
 
+- Polaroid captions: **나눔손글씨 꽃내음 / NanumGgocNaeEum**, original unmodified TTF from NAVER CLOVA's official [font catalog](https://clova.ai/handwriting/list.html) and `https://clova.ai/static/font.json` (font ID 12). SHA-256: `c83012ac5cdd539c4c2bf6eb2fd2fc7b9ca15935cb2ed957a8a13b5c6a0ab61c`. Copyright NAVER / NAVER Cultural Foundation; SIL Open Font License 1.1. The official copyright notice and full license are bundled in `server/reference/fonts/LICENSE-Nanum.txt` and copied alongside the font in the deployed web app. [Official license](https://help.naver.com/service/30016/contents/18088?lang=ko&osType=PC).
+
 - UI reference and wordmark: https://github.com/mokma18/goodmorning-prototype-demo (pinned submodule `prototype`).
 - The original home HTML/CSS/JavaScript, navigation icons, banner, and embedded previews are bundled by `scripts/prepare_frontend.py`; only resource URLs and Flutter navigation bridges are adapted. Cafe24 Ssurround/Air fonts are fetched from the same source URLs as the prototype. The original home's static sample magnets retain their upstream provenance; this does not run SAM 3D inference.
 - Sticker geometry: https://github.com/bloodmoon3929/goodmorning-3d, `pipeline/sticker.py`. The CPU map, mesh and GLB functions are copied into `server/vendor/sticker_geometry.py`; its header identifies the source commit. The original CUDA rendering and SAM 3D inference paths are not used for new uploaded photos.

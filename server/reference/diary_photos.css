@@ -1,0 +1,35 @@
+@font-face {
+  font-family: 'NanumGgocNaeEum';
+  src: url('./fonts/NanumGgocNaeEum.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+/* Flatten page contents together: photos cannot intersect sticker canvases in 3D.
+   The binder cover and rings keep their original separate 3D planes. */
+.solid-diary .diary-content-plane {
+  position: absolute; inset: 0; transform: translateZ(2px);
+  transform-style: flat; isolation: isolate; pointer-events: none;
+}
+.solid-diary .diary-content-plane > .diary { z-index: 0; transform: none; }
+.solid-diary .diary-content-plane > .polaroid { z-index: 1; transform: none; }
+.solid-diary .diary-content-plane > #layers {
+  z-index: 2; transform: none; transform-style: flat; isolation: isolate;
+}
+.diary figure.blank-diary-card { display: none; }
+.diary figure:not(.blank-diary-card) > figcaption,
+#diary-caption-input, .polaroid-caption-editor {
+  font-family: 'NanumGgocNaeEum', cursive; font-weight: 400; font-synthesis: none;
+}
+.diary figure:not(.blank-diary-card) > figcaption:has(.polaroid-caption-editor) {
+  display: block; overflow: visible; -webkit-line-clamp: unset;
+}
+.polaroid-caption-editor {
+  display: block; box-sizing: border-box; width: 100%; height: 2.3em;
+  margin: 0; padding: 0; border: 0; border-radius: 2px; resize: none;
+  color: inherit; background: transparent; text-align: center;
+  font-size: inherit; line-height: 1.12; overflow: auto;
+  cursor: text; user-select: text; -webkit-user-select: text; touch-action: pan-y;
+}
+.polaroid-caption-editor:focus { outline: 1px dashed #8da6b0; outline-offset: 2px; }
+.polaroid-caption-editor::placeholder { color: #8c8a83; opacity: 1; }

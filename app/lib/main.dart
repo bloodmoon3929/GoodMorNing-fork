@@ -72,6 +72,8 @@ class Studio extends StatefulWidget {
 
 class _StudioState extends State<Studio> {
   List<Map<String, dynamic>> assets = [], diaries = [], jobs = [];
+  List<Map<String, dynamic>> get stickerAssets =>
+      assets.where((asset) => asset['kind'] == 'sticker').toList();
   Map<String, dynamic>? health;
   String? error, diaryId, selected, pendingNotebookAsset;
   int tab = Uri.base.queryParameters.containsKey('browse')
@@ -325,7 +327,6 @@ class _StudioState extends State<Studio> {
         await Api.upload('/api/photos', f.bytes!, f.name, {'name': '나의 사진'}),
       );
       if (!mounted) return;
-      setState(() => assets.insert(0, asset));
       addAsset(asset);
     } catch (e) {
       notify(e.toString());
@@ -785,7 +786,7 @@ class _StudioState extends State<Studio> {
   }
 
   Widget library() {
-    final filtered = assets
+    final filtered = stickerAssets
         .where((a) => a['name'].toString().contains(search))
         .toList();
     return ListView(
@@ -1163,9 +1164,9 @@ class _StudioState extends State<Studio> {
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
             ),
-            itemCount: assets.length,
+            itemCount: stickerAssets.length,
             itemBuilder: (_, i) => InkWell(
-              onTap: () => addAsset(assets[i]),
+              onTap: () => addAsset(stickerAssets[i]),
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -1174,9 +1175,9 @@ class _StudioState extends State<Studio> {
                 ),
                 child: Column(
                   children: [
-                    Expanded(child: thumbnail(assets[i])),
+                    Expanded(child: thumbnail(stickerAssets[i])),
                     Text(
-                      assets[i]['name'],
+                      stickerAssets[i]['name'],
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 9),
