@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+if [ -x .venv/Scripts/python.exe ]; then PYTHON=.venv/Scripts/python.exe
+elif command -v python3 >/dev/null 2>&1; then PYTHON=python3
+else PYTHON=python; fi
+"$PYTHON" scripts/check_secrets.py
+if [ -x tools/gitleaks/gitleaks.exe ]; then
+  SCANNER=tools/gitleaks/gitleaks.exe
+elif command -v gitleaks >/dev/null 2>&1; then
+  SCANNER=gitleaks
+else
+  echo 'Commit blocked: install Gitleaks with scripts/setup-security.ps1.' >&2
+  exit 1
+fi
+"$SCANNER" git --pre-commit --staged --redact=100 --no-banner --ignore-gitleaks-allow

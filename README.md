@@ -206,7 +206,7 @@ cd GoodMorNing
 .\scripts\tunnel.ps1
 ```
 
-출력된 **`https://…trycloudflare.com/connect#…` 전체 링크**로 접속합니다. 접근 키는 URL fragment에서 읽은 뒤 주소창에서 제거하고 HttpOnly 세션 쿠키로 전환합니다. 같은 링크는 `logs/access-link.txt`에도 저장됩니다. 키 없는 외부 요청은 사진·API에 접근할 수 없습니다.
+소유자 접속 링크는 콘솔에 출력하지 않고 `logs/access-link.txt`와 `logs/pages-link.txt`에만 저장합니다. 이 파일의 링크에는 비공개 접근 키가 포함되므로 공유하거나 Git에 올리지 마세요. 접근 키는 URL fragment에서 읽은 뒤 주소창에서 제거하고 HttpOnly 세션 쿠키로 전환합니다. 기본 Pages 주소에서는 방문자별로 분리된 데이터를 사용합니다.
 
 - 이 PC와 서버·터널 프로세스가 켜져 있어야 합니다.
 - 임시 터널을 새로 시작하면 주소가 바뀝니다. 운영용 고정 도메인은 별도 설정이 필요합니다.
@@ -217,6 +217,14 @@ cd GoodMorNing
 .\scripts\stop.ps1 -TunnelOnly  # 외부 접속만 종료
 .\scripts\stop.ps1              # 서버와 터널 종료
 ```
+
+## 민감정보 보호
+
+실제 API 키와 접속 키는 Git에서 제외된 `data/` 또는 프로세스 환경변수에만 보관합니다. 설정 예제의 키 값은 비워 두며, `.env`, 로컬 설정·DB·개인 키 파일도 제외합니다. 프론트엔드 및 GitHub Actions 변수에는 공개 가능한 서버 주소만 넣습니다.
+
+`scripts/setup.ps1`은 저장소 전용 커밋 검사도 설치합니다. 기존 환경에서는 `scripts/setup-security.ps1`을 한 번 실행하세요. 커밋 전에 실제 로컬 키와 전체 스테이징 파일을 대조하고 Gitleaks로 변경 내용을 검사합니다. 검사 실패나 도구 누락 시 커밋을 중단합니다. Pages 배포는 전체 Git 기록 및 고정된 원본 소스의 Gitleaks 검사와 배포 파일 검사를 통과해야 진행됩니다. CI는 PC의 비공개 키를 받지 않으므로 로컬 키 대조 검사를 함께 유지해야 합니다.
+
+수동 점검: `python scripts/check_secrets.py --history`, `python scripts/check_secrets.py --artifact app/build/web`. 검사 결과에는 파일 경로와 탐지 규칙만 출력합니다. 실제 키가 이미 유출된 경우 파일 삭제만으로 기록이 지워지지 않으므로 해당 키를 폐기·재발급해야 합니다.
 
 ## 주요 API
 

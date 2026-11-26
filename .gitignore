@@ -16,3 +16,14 @@ app/web/reference/
 app/web/scene/
 pages-link.txt
 app/web/runtime-config.json
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local.json
+*.pem
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db

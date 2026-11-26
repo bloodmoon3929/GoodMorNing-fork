@@ -27,10 +27,10 @@ for($attempt=0;$attempt -lt 80;$attempt++){
     $key=(Get-Content -LiteralPath (Join-Path $projectRoot 'data\access.key') -Raw).Trim()
     $link="$address/connect#$key"
     $link | Set-Content -LiteralPath (Join-Path $logsPath 'access-link.txt')
-    Write-Output $link
+    Write-Output "Public server: $address"
     $pagesLink='https://niraaah.github.io/GoodMorNing/#server='+[Uri]::EscapeDataString($address)+'&key='+[Uri]::EscapeDataString($key)
     $pagesLink | Set-Content -LiteralPath (Join-Path $logsPath 'pages-link.txt')
-    Write-Output "GitHub Pages: $pagesLink"
+    Write-Output 'Private owner links saved locally in logs/access-link.txt and logs/pages-link.txt. Do not publish these files.'
     & (Join-Path $PSScriptRoot 'publish_connection.ps1') -ServerAddress $address
     exit 0
   }

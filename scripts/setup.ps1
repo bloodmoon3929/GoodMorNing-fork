@@ -1,6 +1,7 @@
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 Set-Location $projectRoot
+& (Join-Path $PSScriptRoot 'setup-security.ps1')
 git submodule update --init --recursive
 if($LASTEXITCODE -ne 0){throw 'Source repositories could not be initialized.'}
 if(-not(Test-Path -LiteralPath 'tools\flutter\bin\flutter.bat')){

@@ -11,7 +11,10 @@ concurrency:
   group: github-pages
   cancel-in-progress: false
 jobs:
+  security:
+    uses: ./.github/workflows/security.yml
   build:
+    needs: security
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +38,8 @@ jobs:
         working-directory: app
       - name: Version executable bundles
         run: python3 scripts/finalize_web.py
+      - name: Check files before publishing
+        run: python3 scripts/check_secrets.py --artifact app/build/web
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
