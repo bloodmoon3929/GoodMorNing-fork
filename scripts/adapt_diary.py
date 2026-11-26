@@ -2,6 +2,12 @@
 from pathlib import Path
 
 def adapt(html):
+    html = html.replace('    const product = productCatalog[key] ?? {', '''    const product = (item.goods && isWebUrl(item.url) ? {
+      title: item.goods.title || item.name,
+      note: item.goods.affiliate ? '쿠팡 파트너스 링크를 통해 구매하면 운영자가 일정액의 수수료를 제공받을 수 있습니다. 가격·옵션·배송비는 판매처에서 확인해 주세요.' : '내가 확인하고 연결한 굿즈예요.',
+      facts: [['판매처', item.goods.source || '직접 연결']],
+      links: [['연결한 상품', item.goods.source || '판매 페이지', item.url]],
+    } : null) ?? productCatalog[key] ?? {''')
     reference = Path(__file__).resolve().parent.parent / 'server/reference'
     photos = (reference / 'diary_photos.js').read_text(encoding='utf-8')
     photo_css = (reference / 'diary_photos.css').read_text(encoding='utf-8')

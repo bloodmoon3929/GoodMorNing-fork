@@ -1,0 +1,4 @@
+[
+  {"source":"포켓몬스토어","origin":"https://www.pokemonstore.co.kr","search":"https://www.pokemonstore.co.kr/pages/product/product-list.html?keywords={query}","js":true,"item":"div.thumb-item","title":".thumb-item__info p::text","price":".product-thumb-price::text","image":"img::attr(src)","link":"a.thumb-item__info::attr(href)"},
+  {"source":"대원샵","origin":"https://www.daewonshop.com","search":"https://www.daewonshop.com/search?searchKeyword={query}","js":true,"item":"#productList-template-render div.item","title":".subj a::text","price":".price .real::text","image":".thumb img::attr(src)","link":".subj a::attr(href)"}
+]

@@ -110,7 +110,7 @@
       } else {
         items.push({id:p.id,sourceId:asset.id,backendAssetId:asset.id,name:asset.name,finish:'sticker',
           file:await resource(assetRef(asset.id,'model')),preview:await resource(assetRef(asset.id,'thumbnail')),
-          x:p.x*100,y:p.y*100,size:p.size*100,rotation:p.rotation,url:''});
+          x:p.x*100,y:p.y*100,size:p.size*100,rotation:p.rotation,url:asset.metadata?.goods?.url||'',goods:asset.metadata?.goods});
       }
     }
     return {items,photo:null,diaryLayout:layout,diaryLayoutVersion};
@@ -131,7 +131,7 @@
         renderDiary();syncDiaryControls();
       } else {
         if(draft.length>=maxItems) throw new Error(`한 페이지에는 에셋 ${maxItems}개까지 붙일 수 있어요. 새 장에 추가해 주세요.`);
-        addItem(await materialize({id,name:asset.name,backendAssetId:id,finish:'sticker',url:'',preview:await resource(assetRef(id,'thumbnail'))}));
+        addItem(await materialize({id,name:asset.name,backendAssetId:id,finish:'sticker',url:asset.metadata?.goods?.url||'',goods:asset.metadata?.goods,preview:await resource(assetRef(id,'thumbnail'))}));
       }
       added.add(id);
       send('asset-added',{id});
@@ -154,7 +154,7 @@
       const rows=await assetRows();
       const samples=new Set(['pochita','2026_11_24_08_15','2026_11_24_08_16']);
       return Promise.all(rows.filter(a=>a.kind==='sticker'&&!samples.has(a.id)).map(async asset=>({
-        id:asset.id,backendAssetId:asset.id,name:asset.name,finish:'sticker',url:'',
+        id:asset.id,backendAssetId:asset.id,name:asset.name,finish:'sticker',url:asset.metadata?.goods?.url||'',goods:asset.metadata?.goods,
         preview:await resource(assetRef(asset.id,'thumbnail')),
       })));
     },

@@ -1,0 +1,7 @@
+{
+  "COUPANG_ACCESS_KEY": "",
+  "COUPANG_SECRET_KEY": "",
+  "COUPANG_SUB_ID": "",
+  "EMBEDDING_DEVICE": "cpu",
+  "official_shops": true
+}

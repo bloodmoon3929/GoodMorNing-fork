@@ -10,6 +10,8 @@ import 'reference_view.dart';
 import 'photo_selection.dart';
 import 'studio_dialog.dart';
 import 'asset_actions.dart';
+import 'goods_match_dialog.dart';
+import 'package:web/web.dart' as web;
 
 const ink = Color(0xff294653),
     blue = Color(0xff659bb7),
@@ -338,10 +340,21 @@ class _StudioState extends State<Studio> {
     stickerDialogOpen = true;
     Map<String, dynamic>? draft;
     try {
-      draft = await showStudioDialog<Map<String, dynamic>>(
-        context: context,
-        builder: (_) => const StickerDialog(),
-      );
+      while (mounted) {
+        draft = await showStudioDialog<Map<String, dynamic>>(
+          context: context,
+          builder: (_) => const StickerDialog(),
+        );
+        if (draft == null || !mounted) return;
+        final choice = await showStudioDialog<Map<String, String>>(
+          context: context,
+          builder: (_) => GoodsMatchDialog(draft: draft!),
+        );
+        if (choice == null || !mounted) return;
+        if (choice['retry_photo'] == 'true') continue;
+        (draft['fields'] as Map<String, String>).addAll(choice);
+        break;
+      }
     } finally {
       stickerDialogOpen = false;
     }
@@ -731,7 +744,38 @@ class _StudioState extends State<Studio> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(asset['name']),
-        content: SizedBox(width: 300, height: 280, child: thumbnail(asset)),
+        content: SizedBox(
+          width: 300,
+          height: 340,
+          child: Column(
+            children: [
+              Expanded(child: thumbnail(asset)),
+              if (asset['metadata']?['goods'] is Map) ...[
+                const SizedBox(height: 10),
+                Text(
+                  asset['metadata']['goods']['title'],
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                TextButton.icon(
+                  onPressed: () => web.window.open(
+                    asset['metadata']['goods']['url'],
+                    '_blank',
+                    'noopener,noreferrer',
+                  ),
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('연결한 굿즈 보기'),
+                ),
+                if (asset['metadata']['goods']['affiliate'] == true)
+                  const Text(
+                    '쿠팡 파트너스 링크를 통해 구매하면 운영자가 일정액의 수수료를 제공받을 수 있습니다.',
+                    style: TextStyle(fontSize: 10, height: 1.4),
+                  ),
+              ],
+            ],
+          ),
+        ),
         actions: [
           if (asset['engine'] != 'sam3d-sample')
             TextButton.icon(
@@ -1369,7 +1413,7 @@ class _StickerDialogState extends State<StickerDialog> {
       TextButton(onPressed: () => close(), child: const Text('취소')),
       FilledButton(
         onPressed: bytes == null ? null : submit,
-        child: const Text('만들어 저장'),
+        child: const Text('다음 · 굿즈 연결'),
       ),
     ],
   );

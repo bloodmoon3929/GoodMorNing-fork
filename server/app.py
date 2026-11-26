@@ -23,6 +23,7 @@ from PIL import Image
 from .gpu import Segmenter
 from .stickers import generate, normalized_image
 from . import notebook, asset_trash
+from .goods import api as goods_api
 from .access import COOKIE, load_key, session, requires_access, authorized, connect_page, guest_token, guest_owner
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +56,7 @@ def initialize():
     with connection() as con:
         notebook.initialize(con, DATA)
         asset_trash.initialize(con)
+        goods_api.initialize(con)
         con.executescript('''
           PRAGMA journal_mode=WAL;
           CREATE TABLE IF NOT EXISTS ownership(kind TEXT NOT NULL, ident TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY(kind, ident));
@@ -121,6 +123,7 @@ def worker():
             def progress(number, message):
                 update_job(ident, 'running', number, message)
             info = generate(path / 'source.png', path, segmenter, options, progress)
+            if options.get('goods'): info['goods'] = options['goods']
             with connection() as con:
                 con.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)',
                             (ident, options['name'], 'sticker', options['engine'], now(), json.dumps(info)))
@@ -235,7 +238,9 @@ async def uploaded_image(photo):
 @app.post('/api/stickers', status_code=202)
 async def create_sticker(request: Request, photo: UploadFile = File(), name: str = Form(min_length=1, max_length=60),
                          engine: Literal['sam2-gaussian'] = Form('sam2-gaussian'),
-                         background: Literal['auto', 'keep'] = Form('auto'), box: str = Form('[0.05,0.05,0.95,0.95]')):
+                         background: Literal['auto', 'keep'] = Form('auto'), box: str = Form('[0.05,0.05,0.95,0.95]'),
+                         goods_search_id: str = Form('',max_length=64), goods_candidate_id: str = Form('',max_length=100),
+                         goods_manual_url: str = Form('',max_length=2048), goods_manual_title: str = Form('',max_length=300)):
     if not name.strip():
         raise HTTPException(422, '스티커 이름을 입력해 주세요.')
     try:
@@ -247,6 +252,8 @@ async def create_sticker(request: Request, photo: UploadFile = File(), name: str
     if tasks.full():
         raise HTTPException(429, '만드는 중인 스티커가 많아요. 잠시 후 다시 시도해 주세요.')
     image = await uploaded_image(photo)
+    with connection() as con:
+        goods = goods_api.selection(con,request.state.owner,goods_search_id,goods_candidate_id,goods_manual_url,goods_manual_title)
     ident = uuid.uuid4().hex
     dest = DATA / 'assets' / ident
     dest.mkdir()
@@ -255,7 +262,7 @@ async def create_sticker(request: Request, photo: UploadFile = File(), name: str
         con.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?)', (ident, name.strip(), 'queued', 0, '차례를 기다리고 있어요', None, now()))
         assign(con, 'job', ident, request.state.owner)
     try:
-        tasks.put_nowait((ident, {'name': name.strip(), 'engine': engine, 'background': background, 'box': bounds, 'owner': request.state.owner}))
+        tasks.put_nowait((ident, {'name': name.strip(), 'engine': engine, 'background': background, 'box': bounds, 'owner': request.state.owner, 'goods':goods}))
     except queue.Full:
         update_job(ident, 'failed', 0, '대기열이 가득 찼어요. 다시 시도해 주세요.')
         raise HTTPException(429, '대기열이 가득 찼어요.')
@@ -360,6 +367,7 @@ def file(ident: str, filename: str, request: Request):
 
 
 notebook.register(app, DATA, connection, accessible, normalized_image, now)
+goods_api.register(app, connection, uploaded_image)
 asset_trash.register(app, connection, accessible, asset_dict, now, SAMPLES)
 
 app.mount('/scene', StaticFiles(directory=ROOT / 'server' / 'scene', html=True), name='scene')

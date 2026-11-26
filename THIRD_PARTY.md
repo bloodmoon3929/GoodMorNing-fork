@@ -1,5 +1,9 @@
 # Sources and notices
 
+- Goods retrieval reference: [bloodmoon3929/goodmorning](https://github.com/bloodmoon3929/goodmorning), commit `988904c48a912137aaa668a381d07328df9335c0`. The Coupang HMAC request/response schema and official-shop selectors, robots handling, delay and separate-process Scrapy/Playwright architecture informed `server/goods`. The initial AI embedding directories were placeholders; the local embedding worker is implemented here.
+- EmbeddingGemma 2: [google/embeddinggemma-2](https://huggingface.co/google/embeddinggemma-2), Apache-2.0, revision `f9972ac22e696a105c482202646979e33e4b5a1e`. [Official multimodal usage](https://gemma.ai/models/embeddinggemma/multimodal/). Original model card/license metadata are downloaded with weights locally; weights are excluded from Git/Pages.
+- Naver Shopping Search API retirement: [official notice](https://developers.naver.com/notice/article/32530). Naver is manual product-link association only; no retired endpoint or access-control bypass is used. Coupang uses the Partners API when local credentials are supplied.
+
 - Polaroid captions: **나눔손글씨 꽃내음 / NanumGgocNaeEum**, original unmodified TTF from NAVER CLOVA's official [font catalog](https://clova.ai/handwriting/list.html) and `https://clova.ai/static/font.json` (font ID 12). SHA-256: `c83012ac5cdd539c4c2bf6eb2fd2fc7b9ca15935cb2ed957a8a13b5c6a0ab61c`. Copyright NAVER / NAVER Cultural Foundation; SIL Open Font License 1.1. The official copyright notice and full license are bundled in `server/reference/fonts/LICENSE-Nanum.txt` and copied alongside the font in the deployed web app. [Official license](https://help.naver.com/service/30016/contents/18088?lang=ko&osType=PC).
 
 - UI reference and wordmark: https://github.com/mokma18/goodmorning-prototype-demo (pinned submodule `prototype`).

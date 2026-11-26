@@ -10,6 +10,34 @@
 
 ## 구현된 기능
 
+- 스티커 사진·영역 선택 → **다음 · 굿즈 연결** → 후보 검색 → **선택하고 만들기**. 사용자가 고른 실제 상품만 스티커 메타데이터에 저장하며 에셋 상세와 다이어리 상품 링크에서 열 수 있습니다. ‘연결 없이 만들기’, 사진 재선택, 상품 링크 직접 입력도 제공합니다.
+- 추천은 상품명·캐릭터명으로 수집한 후보를 **EmbeddingGemma 2의 사진 임베딩**과 비교해 정렬합니다. 상품 사진을 가져올 수 없으면 상품 설명과 비교하며 카드에 그 차이를 표시합니다. 유사도는 상품 동일성이나 스티커 품질의 확률이 아닙니다. 다른 옵션·색상일 수 있어 사용자의 선택이 필요합니다.
+
+## 굿즈 검색 연결과 현재 제한
+
+사진은 로컬 PC의 `127.0.0.1:8788` 검색 서비스에서 비교합니다. SAM 2와 의존성이 충돌하지 않도록 `.venv-search`를 따로 사용합니다. 현재 PC의 EmbeddingGemma 2는 **CPU/float32**, SAM 2는 기존 **AMD DirectML GPU**로 실행합니다. 사진을 쇼핑몰이나 외부 AI 서비스에 보내지 않으며, 검색어만 판매처에 전송합니다.
+
+```powershell
+.\scripts\setup-search.ps1  # 별도 Python 환경, Chromium, 고정 모델 준비
+.\scripts\start.ps1         # GPU API와 검색 서비스를 함께 시작
+```
+
+| 판매처 | 연동 방식·현재 상태 |
+| --- | --- |
+| 네이버 | 쇼핑 검색 API는 **2026-07-31 종료**, 별도 대체 API 없음. 쇼핑 사이트도 자동 수집을 차단하므로 우회하지 않습니다. **네이버 상품 링크 직접 연결**을 지원합니다. [공식 종료 공지](https://developers.naver.com/notice/article/32530) |
+| 쿠팡 | 파트너스 API HMAC 상품 검색 어댑터 구현. **현재 키 미설정으로 실제 API 연결 전**입니다. 쿠팡 웹 차단을 우회하는 크롤러는 실행하지 않습니다. |
+| 포켓몬스토어·대원샵 | 초기 저장소의 선택자·수집 구조를 참고한 **Scrapy + Playwright** 검색. 요청 전 robots.txt 확인, 차단 시 중단, 사이트당 동시 1개·3초 간격. 2026-11-26 robots.txt 접근 허용 확인. 실제 상품 검색·선택자 동작은 기능 테스트하지 않았습니다. |
+
+쿠팡 키는 **`data/search.local.json`**의 `COUPANG_ACCESS_KEY`, `COUPANG_SECRET_KEY`에만 입력합니다. 이 파일은 Git·Pages에서 제외됩니다. 설정은 다음 검색부터 읽으므로 재시작할 필요가 없습니다. 쿠팡만 쓰려면 `official_shops`를 `false`로 설정하세요. 새 키를 넣기 전까지는 화면에 ‘API 연결 대기’를 표시하며 가짜 상품으로 대체하지 않습니다. 쿠팡 API의 현재 권한·응답 호환성은 유효한 키로 별도 확인이 필요합니다.
+
+추천이 없을 때 표시하는 안내(3문장):
+
+> 찾는 굿즈가 없다면 아직 검색 목록에 없거나 사진에서 특징이 잘 보이지 않았을 수 있어요. 더 정확하게 찾고 스티커를 만들 수 있도록 밝은 곳에서 굿즈가 화면에 크게 나오게 선명하게 찍어 주세요. 상품명·캐릭터명을 함께 입력하거나 상품 링크를 직접 연결할 수도 있어요.
+
+검색 오류·판매처 차단·미설정 상태는 촬영 안내와 따로 표시합니다. 검색 결과는 사용자별로 저장하고 24시간 뒤 새 검색/서버 시작 시 정리합니다. 검색 사진과 그 임베딩은 검색 중 메모리에서만 사용하며, 확정한 상품 정보는 스티커와 함께 유지합니다. 공개 상품 임베딩은 모델 버전별로 로컬 캐시하고 판매처 검색 결과는 15분간 재사용합니다. 실제 검색·추천 정확도·모바일 선택 흐름은 사용자 확인 대상입니다.
+
+## 다이어리와 스티커 기능
+
 - 폴라로이드는 다이어리의 사진 첨부로 저장하며 스티커 목록에 표시하지 않습니다. 이전 버전에서 에셋으로 저장된 사진도 스티커 목록에서는 제외하되 기존 다이어리 참조는 유지합니다.
 - 다이어리 내용은 **종이·폴라로이드 → 스티커** 순서로 합성합니다. 사진과 스티커를 하나의 평면 안에서 겹쳐 3D 깊이 교차로 사진이 스티커를 가리지 않게 했습니다. 바인더 표지·링은 원본 입체 구조를 유지합니다.
 - 편집 중 폴라로이드 **아래 흰 여백을 눌러 사진별 메모**를 쓸 수 있습니다(70자). 하단 ‘폴라로이드 아래 메모’ 입력란과도 연동되며 게시/취소를 따릅니다. 사진이 없는 빈 종이에는 메모 입력을 제공하지 않습니다. 메모에는 네이버 **나눔손글씨 꽃내음** 원본 글꼴을 앱과 함께 제공합니다.
@@ -73,6 +101,7 @@ GoodMorNing/
 │  │  ├─ main.dart             홈·에셋함·다이어리·사진 선택 화면
 │  │  ├─ api.dart              API 요청과 업로드
 │  │  ├─ asset_actions.dart    이름 입력 삭제 확인·휴지통·복구
+│  │  ├─ goods_match_dialog.dart 사진 검색·굿즈 후보 선택·재촬영 안내
 │  │  ├─ diary_scene.dart      Flutter ↔ Three.js 메시지 연결
 │  │  ├─ reference_view.dart   원본 홈·훔쳐보기·메뉴 ↔ Flutter 탭 연결
 │  │  ├─ photo_selection.dart 사진 영역 선택 전용 터치 처리
@@ -90,6 +119,8 @@ GoodMorNing/
 │  ├─ gaussian.py             Gaussian 표면·PLY/SPLAT 내보내기
 │  ├─ access.py               외부 접속 키·세션 쿠키
 │  ├─ notebook.py             원본 다이어리 페이지·첨부 파일의 소유자별 저장
+│  ├─ goods/                  상품 검색 API·쿠팡 서명·Scrapy/Playwright·EmbeddingGemma 2
+│  ├─ requirements-search.txt  격리된 검색 환경의 직접 의존성
 │  ├─ asset_trash.py          이름 확인 삭제·소유자별 휴지통·복구
 │  ├─ reference/diary_bridge.js  원본 편집기 ↔ GPU 에셋·페이지 저장 연결
 │  ├─ reference/diary_motion.js  고정 다이어리의 자이로 반사·수동 대체 모드
@@ -103,6 +134,8 @@ GoodMorNing/
 ├─ scripts/
 │  ├─ setup.ps1               새 PC에서 환경 구성
 │  ├─ setup_models.py         고정 버전 SAM 2 ONNX 모델 다운로드
+│  ├─ setup-search.ps1         검색 환경·모델·Chromium 설치
+│  ├─ start-search.ps1         내부 전용 상품 검색 서버 실행
 │  ├─ build.ps1               Flutter 웹 빌드
 │  ├─ finalize_web.py         배포별 JS 주소 분리·이전 실행 파일 캐시 방지
 │  ├─ prepare_frontend.py      원본 홈·메뉴·정적 3D 파일 준비
@@ -121,6 +154,9 @@ GoodMorNing/
 │  ├─ assets/<id>/             원본 사진, 스티커, 메타데이터
 │  ├─ notebook-files/         다이어리 첨부 사진·GLB (소유자별 접근)
 │  ├─ models/sam2/             SAM 2 ONNX 모델 약 155MB
+│  ├─ models/embeddinggemma-2/  고정 버전 사진 임베딩 모델
+│  ├─ search.local.json        쿠팡 키·검색 설정 (비공개)
+│  ├─ goods-cache/             공개 상품 임베딩 캐시
 │  ├─ access.key              외부 접속 키
 │  └─ verification/           로컬 검증 기록
 ├─ tools/                     로컬 Flutter SDK·cloudflared, Git 제외
@@ -188,6 +224,8 @@ cd GoodMorNing
 | --- | --- |
 | `GET /api/health` | 서버·SAM 2 모델·GPU provider 상태 |
 | `GET /api/assets` | 휴지통을 제외한 에셋 목록 |
+| `POST /api/goods/searches` | 사진·선택 영역·검색어 → 비동기 굿즈 검색 |
+| `GET /api/goods/searches/{id}` | 본인의 검색 상태·추천 후보 |
 | `POST /api/assets/{id}/trash` | 정확한 `name` 확인 후 휴지통으로 이동 |
 | `GET /api/trash` | 내 휴지통 |
 | `POST /api/trash/{id}/restore` | 에셋 복구 |

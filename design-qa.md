@@ -2,6 +2,8 @@
 
 final result: blocked
 
+Goods matching addition: source-based Flutter dialog, user-confirmed candidate association, manual link/skip/reselect paths, and a three-sentence non-blaming photo guide. EmbeddingGemma 2 weights loaded locally on CPU; Python syntax and Flutter compilation are the verification scope. No real photo matching, live product crawl, mobile interaction, or authenticated Coupang request has been tested. Naver Shopping API is retired and crawling is blocked; Naver supports manual links. Coupang credentials are not configured. Do not describe these external integrations as verified end-to-end.
+
 Visual comparison and browser interaction QA were deliberately not run: the user explicitly requested “캡처 없이 소스 기준으로 수정” and said they would do the testing. This record does not claim a visual QA pass and does not block the user's explicitly authorized GitHub publication.
 
 - Reference: pinned `prototype/index.html`, home route `?home`.

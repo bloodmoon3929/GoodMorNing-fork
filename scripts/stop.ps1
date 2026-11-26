@@ -2,7 +2,7 @@ param([switch]$TunnelOnly,[switch]$ServerOnly)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 if($TunnelOnly -and $ServerOnly){throw 'Choose either -TunnelOnly or -ServerOnly.'}
-$names=if($TunnelOnly){@('tunnel')}elseif($ServerOnly){@('server')}else{@('tunnel','server')}
+$names=if($TunnelOnly){@('tunnel')}elseif($ServerOnly){@('server','search')}else{@('tunnel','server','search')}
 foreach($name in $names){
   $pidPath=Join-Path $projectRoot "logs\$name.pid"
   if(-not(Test-Path -LiteralPath $pidPath)){continue}
@@ -10,7 +10,7 @@ foreach($name in $names){
   $process=Get-CimInstance Win32_Process -Filter "ProcessId=$ownedId"
   if(-not $process){continue}
   if(-not $process.CommandLine.Contains($projectRoot)){throw "PID $ownedId no longer belongs to this project."}
-  if($name -eq 'server' -and -not $process.CommandLine.Contains('uvicorn')){throw 'Unexpected server process.'}
+  if($name -in @('server','search') -and -not $process.CommandLine.Contains('uvicorn')){throw 'Unexpected server process.'}
   if($name -eq 'tunnel' -and -not $process.CommandLine.Contains('cloudflared')){throw 'Unexpected tunnel process.'}
   # Windows venv python.exe launches a child interpreter. Stop only descendants
   # of the validated project process, so the listener is actually released.
