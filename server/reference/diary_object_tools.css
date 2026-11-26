@@ -1,0 +1,33 @@
+.diary-object-tools { position:absolute; inset:0; z-index:4; pointer-events:none; }
+.diary-demo .post.is-editing .model[aria-pressed="true"],
+.diary-demo .diary figure.selected-photo { outline:none; }
+.object-selection-frame { position:absolute; border:1.5px dashed #406e7c; pointer-events:none; }
+.object-resize-handle {
+  position:absolute; width:28px; height:28px; padding:0; border:0; background:transparent;
+  pointer-events:auto; touch-action:none; transform:translate(-50%,-50%);
+}
+.object-resize-handle::after { content:''; position:absolute; inset:8px; background:#fff; border:2px solid #406e7c; border-radius:3px; }
+.object-resize-handle.nw { left:0; top:0; cursor:nwse-resize; }
+.object-resize-handle.ne { left:100%; top:0; cursor:nesw-resize; }
+.object-resize-handle.sw { left:0; top:100%; cursor:nesw-resize; }
+.object-resize-handle.se { left:100%; top:100%; cursor:nwse-resize; }
+.object-toolbar {
+  position:absolute; display:flex; flex-wrap:wrap; gap:3px; width:max-content; max-width:calc(100% - 4px);
+  padding:5px; background:#fffdf7; border:1px solid #a0b6ba; border-radius:10px;
+  box-shadow:0 3px 12px #24485f30; pointer-events:auto; font:12px var(--ui-font); touch-action:manipulation;
+}
+.object-toolbar button { min-height:32px; padding:5px 8px; border:0; border-radius:6px; color:#254752; background:#eef5f5; font:inherit; white-space:nowrap; }
+.object-toolbar button:hover { background:#dcebed; }
+.object-toolbar .object-apply { color:white; background:#315e69; }
+.object-rotation { display:flex; flex-basis:100%; align-items:center; justify-content:center; gap:3px; }
+.object-rotation input { width:55px; min-height:32px; padding:3px; border:1px solid #b5c4c7; border-radius:5px; font:inherit; }
+.object-swap-dialog { width:min(430px,calc(100% - 28px)); max-height:80dvh; overflow:auto; padding:20px; border:1px solid #a0b6ba; border-radius:16px; background:#fffdf7; color:#254752; }
+.object-swap-dialog::backdrop { background:#182f4266; }
+.object-swap-dialog h2 { font-size:17px; }
+.object-swap-dialog button { border:1px solid #b8c7ca; border-radius:8px; padding:8px; background:#edf5f5; color:inherit; }
+.object-swap-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.object-swap-grid button { display:flex; flex-direction:column; align-items:center; gap:5px; min-width:0; font-size:12px; overflow-wrap:anywhere; }
+.object-swap-grid img { width:100%; aspect-ratio:1; object-fit:contain; }
+.diary-demo #properties > .size-row,
+.diary-demo #diary-photo-fields > .size-row { display:none; }
+@media (pointer:coarse) { .object-resize-handle { width:40px; height:40px; } .object-resize-handle::after { inset:13px; } }

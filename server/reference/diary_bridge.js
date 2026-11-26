@@ -136,6 +136,7 @@
         selectedDiaryPhoto=reusable>=0?reusable:layout.length;
         layout[selectedDiaryPhoto]={file,x:20,y:20,size:45,rotation:0,tape:'kraft',caption:''};
         renderDiary();syncDiaryControls();
+        diaryObjectEditor?.selectPhoto(selectedDiaryPhoto);
       } else {
         if(draft.length>=maxItems) throw new Error(`한 페이지에는 에셋 ${maxItems}개까지 붙일 수 있어요. 새 장에 추가해 주세요.`);
         const ready=await materialize({id,name:asset.name,backendAssetId:id,finish:'sticker',url:asset.metadata?.goods?.url||'',goods:asset.metadata?.goods,preview:await resource(assetRef(id,'thumbnail'))});

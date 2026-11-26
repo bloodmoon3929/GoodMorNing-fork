@@ -95,6 +95,7 @@ function wireDiaryPhotoUpload(input) {
         }
       }
       notice(); renderDiary(); syncDiaryControls();
+      diaryObjectEditor?.selectPhoto(selectedDiaryPhoto);
     } catch (error) {
       if (current()) notice(error.message || '사진을 추가하지 못했어요. 다시 선택해 주세요.');
     } finally {
