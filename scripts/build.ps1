@@ -7,3 +7,5 @@ Set-Location (Join-Path $projectRoot 'app')
 if ($LASTEXITCODE -ne 0) { throw 'Flutter dependency resolution failed.' }
 & (Join-Path $projectRoot 'tools\flutter\bin\flutter.bat') build web --release
 if ($LASTEXITCODE -ne 0) { throw 'Flutter build failed.' }
+& (Join-Path $projectRoot '.venv\Scripts\python.exe') (Join-Path $PSScriptRoot 'finalize_web.py')
+if ($LASTEXITCODE -ne 0) { throw 'Frontend versioning failed.' }

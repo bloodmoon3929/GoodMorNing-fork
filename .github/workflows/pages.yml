@@ -33,6 +33,8 @@ jobs:
       - name: Build Flutter for repository URL
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
         working-directory: app
+      - name: Version executable bundles
+        run: python3 scripts/finalize_web.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

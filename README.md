@@ -12,6 +12,7 @@
 
 - 원본 **훔쳐보기** 탭: 포치타·디무 다이어리 카드, 원본 샘플 다이어리 열람과 목록 복귀. [직접 열기](https://niraaah.github.io/GoodMorNing/?browse). GPU 연결 없이 열람 가능하며, 실제 이용자의 비공개 다이어리를 공개하는 기능은 아닙니다.
 - 사진 업로드 후 사각형으로 굿즈 영역 선택
+- 모바일에서 사진 위 터치는 영역 선택이 우선이며 사진 밖에서 스크롤합니다. 유효한 영역을 선택하고 저장하면 창이 닫히고 에셋 화면에서 업로드·생성 상태를 표시합니다. 취소는 업로드를 시작하지 않고 창을 닫습니다.
 - **SAM 2.1**로 누끼 분리: Windows의 ONNX Runtime DirectML로 로컬 AMD GPU 사용
 - 누끼 이미지로 가우시안 입자와 볼록한 표면을 만들고 `.ply`, `.splat`, `.glb`, PNG 저장
 - 생성 작업의 대기·진행률·실패 표시, 완료된 스티커를 에셋 보관함에 추가
@@ -63,7 +64,9 @@ GoodMorNing/
 │  │  ├─ main.dart             홈·에셋함·다이어리·사진 선택 화면
 │  │  ├─ api.dart              API 요청과 업로드
 │  │  ├─ diary_scene.dart      Flutter ↔ Three.js 메시지 연결
-│  │  └─ reference_view.dart   원본 홈·훔쳐보기·메뉴 ↔ Flutter 탭 연결
+│  │  ├─ reference_view.dart   원본 홈·훔쳐보기·메뉴 ↔ Flutter 탭 연결
+│  │  ├─ photo_selection.dart 사진 영역 선택 전용 터치 처리
+│  │  └─ studio_dialog.dart   모달 아래 HTML 화면의 터치 차단
 │  ├─ assets/wordmark.png      원본 프로토타입 워드마크
 │  ├─ web/                    웹 진입점·아이콘·manifest
 │  │  ├─ reference/           빌드 때 원본 소스·폰트·샘플 복사 (Git 제외)
@@ -84,6 +87,7 @@ GoodMorNing/
 │  ├─ setup.ps1               새 PC에서 환경 구성
 │  ├─ setup_models.py         고정 버전 SAM 2 ONNX 모델 다운로드
 │  ├─ build.ps1               Flutter 웹 빌드
+│  ├─ finalize_web.py         배포별 JS 주소 분리·이전 실행 파일 캐시 방지
 │  ├─ prepare_frontend.py      원본 홈·메뉴·정적 3D 파일 준비
 │  ├─ write_connection.py      공개 GPU 주소를 웹 런타임 설정에 기록
 │  ├─ publish_connection.ps1   터널 주소 변경 → Pages 자동 재배포

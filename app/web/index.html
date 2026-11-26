@@ -11,4 +11,18 @@
   <style>body{margin:0;background:#eff7fb}.loading{position:fixed;inset:0;display:grid;place-content:center;text-align:center;color:#659bb7;font:14px sans-serif;gap:20px}.sun{font-size:36px}</style>
 </head><body><div class="loading" id="loading"><div class="sun">☀</div><div>나의 작은 수집방을 열고 있어요…</div></div>
 <script>window.addEventListener('flutter-first-frame',()=>document.querySelector('#loading')?.remove());</script>
-<script src="flutter_bootstrap.js" async></script></body></html>
+<script>
+(async()=>{
+  // Remove only this application's legacy worker; leave other apps untouched.
+  try {
+    if ('serviceWorker' in navigator) {
+      const scope=new URL('./',document.baseURI).href;
+      const registrations=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.filter(r=>r.scope===scope).map(r=>r.unregister()));
+    }
+  } catch (_) {}
+  const script=document.createElement('script');
+  script.src='flutter_bootstrap.js';
+  document.body.append(script);
+})();
+</script></body></html>

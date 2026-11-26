@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +7,8 @@ import 'package:material_ui/material_ui.dart';
 import 'api.dart';
 import 'diary_scene.dart';
 import 'reference_view.dart';
+import 'photo_selection.dart';
+import 'studio_dialog.dart';
 
 const ink = Color(0xff294653),
     blue = Color(0xff659bb7),
@@ -74,6 +75,7 @@ class _StudioState extends State<Studio> {
   String? error, diaryId, selected;
   int tab = Uri.base.queryParameters.containsKey('browse') ? 3 : 0;
   bool loading = true, tilt = false, saving = false, polling = false;
+  bool stickerDialogOpen = false;
   String search = '', saveStatus = '저장됨';
   Timer? poll, saveTimer;
   final pending = <String, String>{};
@@ -164,7 +166,10 @@ class _StudioState extends State<Studio> {
           : assets;
       if (mounted)
         setState(() {
-          jobs = fresh;
+          jobs = [
+            ...jobs.where((j) => j['id'].toString().startsWith('upload-')),
+            ...fresh,
+          ];
           assets = library;
         });
       if (completed) notify('새 볼록 스티커가 에셋함에 도착했어요!');
@@ -273,7 +278,7 @@ class _StudioState extends State<Studio> {
     if (diary == null) return;
     final title = TextEditingController(text: diary!['title']),
         note = TextEditingController(text: diary!['note']);
-    final accepted = await showDialog<bool>(
+    final accepted = await showStudioDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('오늘의 기록'),
@@ -341,21 +346,63 @@ class _StudioState extends State<Studio> {
   }
 
   Future<void> createSticker() async {
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => const StickerDialog(),
-    );
-    if (result == null || !mounted) return;
+    if (stickerDialogOpen) return;
+    stickerDialogOpen = true;
+    Map<String, dynamic>? draft;
+    try {
+      draft = await showStudioDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (_) => const StickerDialog(),
+      );
+    } finally {
+      stickerDialogOpen = false;
+    }
+    if (draft == null || !mounted) return;
+    final uploadId = 'upload-${DateTime.now().microsecondsSinceEpoch}';
+    final stickerName = draft['name'] as String;
     setState(() {
       jobs.insert(0, {
-        ...result,
-        'name': result['name'] ?? '새 스티커',
+        'id': uploadId,
+        'name': stickerName,
+        'state': 'uploading',
         'progress': 0,
-        'message': '누끼를 준비하고 있어요',
+        'message': '사진을 보내고 있어요…',
       });
       tab = 1;
     });
-    pollJobs();
+    try {
+      final result = Map<String, dynamic>.from(
+        await Api.upload(
+          '/api/stickers',
+          draft['photo'] as Uint8List,
+          draft['filename'] as String,
+          Map<String, String>.from(draft['fields'] as Map),
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        jobs.removeWhere((j) => j['id'] == uploadId);
+        jobs.insert(0, {
+          ...result,
+          'name': stickerName,
+          'progress': 0,
+          'message': '누끼를 준비하고 있어요',
+        });
+      });
+      pollJobs();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        jobs.removeWhere((j) => j['id'] == uploadId);
+        jobs.insert(0, {
+          'id': uploadId,
+          'name': stickerName,
+          'state': 'failed',
+          'message': '사진 전송 실패: $e',
+        });
+      });
+      notify('사진을 보내지 못했어요. 에셋 화면에서 오류를 확인해 주세요.');
+    }
   }
 
   Widget thumbnail(
@@ -401,7 +448,7 @@ class _StudioState extends State<Studio> {
     final key = TextEditingController(text: Api.token);
     String? failure;
     bool busy = false;
-    final connected = await showDialog<bool>(
+    final connected = await showStudioDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, update) => AlertDialog(
@@ -680,7 +727,7 @@ class _StudioState extends State<Studio> {
         ),
       );
   Future<void> showAsset(Map<String, dynamic> asset) async {
-    await showDialog(
+    await showStudioDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(asset['name']),
@@ -768,7 +815,9 @@ class _StudioState extends State<Studio> {
                       if (j['state'] != 'failed') ...[
                         const SizedBox(height: 10),
                         LinearProgressIndicator(
-                          value: ((j['progress'] ?? 0) as num) / 100,
+                          value: j['state'] == 'uploading'
+                              ? null
+                              : ((j['progress'] ?? 0) as num) / 100,
                           backgroundColor: sky,
                           color: blue,
                         ),
@@ -1109,10 +1158,9 @@ class _StickerDialogState extends State<StickerDialog> {
   final name = TextEditingController();
   Uint8List? bytes;
   String filename = '', error = '';
-  bool busy = false, keep = false, marked = false;
+  bool keep = false, marked = false, finished = false;
   double ratio = 1;
   Rect box = const Rect.fromLTRB(.05, .05, .95, .95);
-  Offset? start;
   @override
   void dispose() {
     name.dispose();
@@ -1120,12 +1168,13 @@ class _StickerDialogState extends State<StickerDialog> {
   }
 
   Future<void> pick() async {
+    FocusScope.of(context).unfocus();
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         withData: true,
       );
-      if (result == null) return;
+      if (result == null || !mounted) return;
       final f = result.files.single;
       if (f.size > 16 * 1024 * 1024) {
         setState(() => error = '사진은 16MB 이하로 선택해 주세요.');
@@ -1152,7 +1201,15 @@ class _StickerDialogState extends State<StickerDialog> {
     }
   }
 
-  Future<void> submit() async {
+  void close([Map<String, dynamic>? result]) {
+    if (finished || !mounted) return;
+    finished = true;
+    FocusScope.of(context).unfocus();
+    Navigator.of(context, rootNavigator: true).pop(result);
+  }
+
+  void submit() {
+    if (finished) return;
     if (bytes == null || name.text.trim().isEmpty) {
       setState(() => error = '사진과 스티커 이름을 입력해 주세요.');
       return;
@@ -1161,33 +1218,36 @@ class _StickerDialogState extends State<StickerDialog> {
       setState(() => error = '사진에서 굿즈를 감싸는 사각형을 먼저 그려 주세요.');
       return;
     }
-    setState(() {
-      busy = true;
-      error = '';
+    close({
+      'name': name.text.trim(),
+      'photo': bytes!,
+      'filename': filename,
+      'fields': <String, String>{
+        'name': name.text.trim(),
+        'engine': 'sam2-gaussian',
+        'background': keep ? 'keep' : 'auto',
+        'box': jsonEncode([box.left, box.top, box.right, box.bottom]),
+      },
     });
-    try {
-      final result = Map<String, dynamic>.from(
-        await Api.upload('/api/stickers', bytes!, filename, {
-          'name': name.text.trim(),
-          'engine': 'sam2-gaussian',
-          'background': keep ? 'keep' : 'auto',
-          'box': jsonEncode([box.left, box.top, box.right, box.bottom]),
-        }),
-      );
-      if (mounted)
-        Navigator.pop(context, {...result, 'name': name.text.trim()});
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          error = e.toString();
-          busy = false;
-        });
-    }
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('볼록 스티커 만들기'),
+    title: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('볼록 스티커 만들기'),
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              error,
+              style: const TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ),
+      ],
+    ),
     content: SizedBox(
       width: 470,
       child: SingleChildScrollView(
@@ -1203,7 +1263,7 @@ class _StickerDialogState extends State<StickerDialog> {
             TextField(
               controller: name,
               maxLength: 60,
-              enabled: !busy,
+              enabled: !finished,
               decoration: const InputDecoration(
                 labelText: '스티커 이름',
                 hintText: '예: 나의 토끼 키링',
@@ -1213,7 +1273,7 @@ class _StickerDialogState extends State<StickerDialog> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: busy ? null : pick,
+                onPressed: finished ? null : pick,
                 icon: const Icon(Icons.add_photo_alternate_outlined),
                 label: Text(bytes == null ? '사진 선택' : '다른 사진 선택'),
               ),
@@ -1221,69 +1281,28 @@ class _StickerDialogState extends State<StickerDialog> {
             if (bytes != null) ...[
               const SizedBox(height: 12),
               const Text(
-                '사진 위에서 굿즈를 감싸도록 사각형을 그려 주세요.',
+                '사진 위는 영역 선택, 사진 밖은 스크롤입니다.',
                 style: TextStyle(fontSize: 11, color: blue),
               ),
               const SizedBox(height: 8),
-              Center(
-                child: SizedBox(
-                  width: math.min(430, 300 * ratio),
-                  child: AspectRatio(
-                    aspectRatio: ratio,
-                    child: LayoutBuilder(
-                      builder: (_, constraints) {
-                        Offset normalized(Offset p) => Offset(
-                          (p.dx / constraints.maxWidth).clamp(0, 1),
-                          (p.dy / constraints.maxHeight).clamp(0, 1),
-                        );
-                        return GestureDetector(
-                          onPanStart: busy
-                              ? null
-                              : (d) {
-                                  start = normalized(d.localPosition);
-                                },
-                          onPanUpdate: busy
-                              ? null
-                              : (d) {
-                                  if (start == null) return;
-                                  final p = normalized(d.localPosition);
-                                  setState(() {
-                                    box = Rect.fromPoints(start!, p);
-                                    marked = true;
-                                  });
-                                },
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Image.memory(bytes!, fit: BoxFit.fill),
-                              Positioned(
-                                left: box.left * constraints.maxWidth,
-                                top: box.top * constraints.maxHeight,
-                                width: box.width * constraints.maxWidth,
-                                height: box.height * constraints.maxHeight,
-                                child: IgnorePointer(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: const Color(0x1460bda0),
-                                      border: Border.all(
-                                        color: const Color(0xff62c2a4),
-                                        width: 2,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
+              PhotoSelection(
+                key: ValueKey(bytes),
+                bytes: bytes!,
+                ratio: ratio,
+                selection: marked ? box : null,
+                enabled: !keep,
+                onChanged: (value) => setState(() {
+                  box = value;
+                  marked = value.width >= .02 && value.height >= .02;
+                  error = marked ? '' : '선택 영역을 조금 더 크게 그려 주세요.';
+                }),
               ),
               CheckboxListTile(
                 value: keep,
-                onChanged: busy ? null : (v) => setState(() => keep = v!),
+                onChanged: (v) => setState(() {
+                  keep = v!;
+                  error = '';
+                }),
                 title: const Text(
                   '배경을 포함한 사진 전체로 만들기',
                   style: TextStyle(fontSize: 11),
@@ -1297,26 +1316,15 @@ class _StickerDialogState extends State<StickerDialog> {
               'SAM 2 누끼 → 가우시안 볼록 스티커\n사진과 결과는 내 PC에 저장돼요.',
               style: TextStyle(fontSize: 11, color: blue, height: 1.8),
             ),
-            if (error.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  error,
-                  style: const TextStyle(color: Colors.red, fontSize: 12),
-                ),
-              ),
           ],
         ),
       ),
     ),
     actions: [
-      TextButton(
-        onPressed: busy ? null : () => Navigator.pop(context),
-        child: const Text('취소'),
-      ),
+      TextButton(onPressed: () => close(), child: const Text('취소')),
       FilledButton(
-        onPressed: busy || bytes == null ? null : submit,
-        child: Text(busy ? '사진을 보내고 있어요…' : '만들어 저장'),
+        onPressed: bytes == null ? null : submit,
+        child: const Text('만들어 저장'),
       ),
     ],
   );
