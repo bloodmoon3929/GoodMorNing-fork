@@ -12,10 +12,18 @@
   transform-style: flat; isolation: isolate; pointer-events: none;
 }
 .solid-diary .diary-content-plane > .diary { z-index: 0; transform: none; }
-.solid-diary .diary-content-plane > .polaroid { z-index: 1; transform: none; }
+.solid-diary .diary-content-plane > .polaroid { z-index: 1; transform: translate(-50%, -50%); }
 .solid-diary .diary-content-plane > #layers {
   z-index: 2; transform: none; transform-style: flat; isolation: isolate;
 }
+/* Each photo stays in the paper's stacking context, even when selected.
+   Canvas filters and relief rendering cannot interleave with the photo plane. */
+.solid-diary .diary-content-plane > .diary { transform-style: flat; isolation: isolate; }
+.solid-diary .diary-content-plane #layers .model { transform-style: flat; isolation: isolate; }
+.solid-diary.is-editing .diary-content-plane :is(.model, .diary figure) {
+  pointer-events: auto; touch-action: none; -webkit-user-drag: none;
+}
+.solid-diary.is-editing .diary-content-plane { touch-action: none; }
 .diary figure.blank-diary-card { display: none; }
 .diary figure:not(.blank-diary-card) > figcaption,
 #diary-caption-input, .polaroid-caption-editor {

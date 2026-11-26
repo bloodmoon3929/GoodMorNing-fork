@@ -1,5 +1,6 @@
 """Small storage/navigation substitutions around the original diary UI."""
 from pathlib import Path
+from repair_diary import repair
 
 def adapt(html):
     html = html.replace('    const product = productCatalog[key] ?? {', '''    const product = (item.goods && isWebUrl(item.url) ? {
@@ -42,8 +43,12 @@ def adapt(html):
     html = html.replace("function stickerLibrary(mode = 'readonly', asset) {", """function stickerLibrary(mode = 'readonly', asset) {
   if (demo && !visitingDiary && mode === 'readonly') return window.goodmorningBridge.stickers();""")
     html = html.replace('function addItem(asset) {', '''function addItem(asset) {
+  if (!draft || saving) return;
   if (asset.backendAssetId && !asset.file) {
-    void window.goodmorningBridge.materialize(asset).then(addItem).catch(error => notice(error.message));
+    const editing = draft, token = beginDiaryLoad();
+    void window.goodmorningBridge.materialize(asset).then(loaded => {
+      if (draft === editing && !saving) addItem(loaded);
+    }).catch(error => { if (draft === editing) notice(error.message); }).finally(() => endDiaryLoad(token));
     return;
   }''')
     start = html.index("elements.publish.addEventListener('click', async () => {")
@@ -65,4 +70,4 @@ def adapt(html):
     html = html.replace('  elements.edit.disabled = false;\n  if (newDiaryPage && !pageExists) elements.edit.click();', '''  elements.edit.disabled = Boolean(window.goodmorningReadFailed);
   if (newDiaryPage && !pageExists && !window.goodmorningReadFailed) elements.edit.click();
   if (demo && !visitingDiary && !window.goodmorningReadFailed) window.goodmorningBridge.markReady();''')
-    return html
+    return repair(html)

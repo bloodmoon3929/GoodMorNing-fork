@@ -119,25 +119,39 @@
   async function processPending() {
     if(!config || !editorReady || processing || !pendingAsset || added.has(pendingAsset)) return;
     if(!demo || visitingDiary) return;
-    const id=pendingAsset;processing=true;
+    const id=pendingAsset, requestedDraft=draft;processing=true;
+    let editing, layout, token;
     try {
       const asset=(await assetRows()).find(a=>a.id===id);
       if(!asset) throw new Error('에셋을 찾지 못했어요.');
+      if(draft!==requestedDraft || saving) { added.add(id);send('asset-added',{id});return; }
       if(!draft) elements.edit.click();
       if(!draft) throw new Error('다이어리 편집을 시작하지 못했어요.');
+      editing=draft;layout=draftDiary;token=beginDiaryLoad();
       if(asset.kind==='photo') {
-        draftDiary.push({file:await resource(assetRef(id,'thumbnail')),x:20,y:20,size:45,tape:'kraft',caption:''});
-        selectedDiaryPhoto=draftDiary.length-1;
+        const file=await resource(assetRef(id,'thumbnail'));
+        if(draft!==editing || draftDiary!==layout || saving) return;
+        const reusable=layout.findIndex((photo,index)=>index>=stories.length && photo.removed);
+        if(reusable<0 && layout.length>=100) throw new Error('이 장의 사진이 가득 찼어요. 새 장에 추가해 주세요.');
+        selectedDiaryPhoto=reusable>=0?reusable:layout.length;
+        layout[selectedDiaryPhoto]={file,x:20,y:20,size:45,rotation:0,tape:'kraft',caption:''};
         renderDiary();syncDiaryControls();
       } else {
         if(draft.length>=maxItems) throw new Error(`한 페이지에는 에셋 ${maxItems}개까지 붙일 수 있어요. 새 장에 추가해 주세요.`);
-        addItem(await materialize({id,name:asset.name,backendAssetId:id,finish:'sticker',url:asset.metadata?.goods?.url||'',goods:asset.metadata?.goods,preview:await resource(assetRef(id,'thumbnail'))}));
+        const ready=await materialize({id,name:asset.name,backendAssetId:id,finish:'sticker',url:asset.metadata?.goods?.url||'',goods:asset.metadata?.goods,preview:await resource(assetRef(id,'thumbnail'))});
+        if(draft!==editing || saving) return;
+        addItem(ready);
       }
       added.add(id);
       send('asset-added',{id});
       notice('에셋을 붙였어요. 위치를 정한 뒤 게시를 눌러 저장해 주세요.');
     } catch(error) { notice(error.message);send('error',{message:error.message}); }
-    finally { processing=false; }
+    finally {
+      if(token) endDiaryLoad(token);
+      // A cancelled edit consumes this request without inserting into a new draft.
+      if(editing && draft!==editing) { added.add(id);send('asset-added',{id}); }
+      processing=false;
+    }
   }
 
   window.goodmorningBridge={

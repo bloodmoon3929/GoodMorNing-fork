@@ -1,5 +1,7 @@
 # Source-based implementation record
 
+Diary editing correction: all six new stickers now start inside the page; older off-page sticker positions are clamped back into reach. Pointer gestures suppress native drag, release stale capture when editing ends or the window loses focus, and exclude caption controls. Photo selection checks size/dimensions before insertion, blocks publishing while decoding or materializing an asset, and discards cancelled/stale results. Photos remain below the isolated sticker plane; legacy centered polaroids retain their 2D centering transform. Verification is limited to checked source substitutions, JavaScript syntax, Flutter compilation and secret scans. User interaction checks remain: six stickers on a phone, drag/cancel/resume, photo add/replace/delete, overlap and caption save/reload. No browser functional tests or screenshots were run.
+
 final result: blocked
 
 Goods matching addition: source-based Flutter dialog, user-confirmed candidate association, manual link/skip/reselect paths, and a three-sentence non-blaming photo guide. EmbeddingGemma 2 weights loaded locally on CPU; Python syntax and Flutter compilation are the verification scope. No real photo matching, live product crawl, mobile interaction, or authenticated Coupang request has been tested. Naver Shopping API is retired and crawling is blocked; Naver supports manual links. Coupang credentials are not configured. Do not describe these external integrations as verified end-to-end.
