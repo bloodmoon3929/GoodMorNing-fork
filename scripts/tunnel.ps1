@@ -28,6 +28,9 @@ for($attempt=0;$attempt -lt 80;$attempt++){
     $link="$address/connect#$key"
     $link | Set-Content -LiteralPath (Join-Path $logsPath 'access-link.txt')
     Write-Output $link
+    $pagesLink='https://niraaah.github.io/GoodMorNing/#server='+[Uri]::EscapeDataString($address)+'&key='+[Uri]::EscapeDataString($key)
+    $pagesLink | Set-Content -LiteralPath (Join-Path $logsPath 'pages-link.txt')
+    Write-Output "GitHub Pages: $pagesLink"
     exit 0
   }
 }

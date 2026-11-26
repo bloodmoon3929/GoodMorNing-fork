@@ -1,6 +1,7 @@
 # Sources and notices
 
 - UI reference and wordmark: https://github.com/mokma18/goodmorning-prototype-demo (pinned submodule `prototype`).
+- The original home HTML/CSS/JavaScript, navigation icons, banner, and embedded previews are bundled by `scripts/prepare_frontend.py`; only resource URLs and Flutter navigation bridges are adapted. Cafe24 Ssurround/Air fonts are fetched from the same source URLs as the prototype. The original home's static sample magnets retain their upstream provenance; this does not run SAM 3D inference.
 - Sticker geometry: https://github.com/bloodmoon3929/goodmorning-3d, `pipeline/sticker.py`. The CPU map, mesh and GLB functions are copied into `server/vendor/sticker_geometry.py`; its header identifies the source commit. The original CUDA rendering and SAM 3D inference paths are not used for new uploaded photos.
 - Three.js and its addons: upstream goodmorning-3d `viewer/vendor`, MIT. The license is retained in `server/scene/vendor/LICENSE-three.txt`.
 - Spark: upstream viewer vendor, MIT. Its license is retained alongside it; diary rendering uses the GLB surface.

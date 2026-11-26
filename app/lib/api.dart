@@ -1,13 +1,74 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:web/web.dart' as web;
 
 class Api {
   static String base = const String.fromEnvironment('API_BASE');
+  static String token = '';
+  static final _images = <String, Future<Uint8List>>{};
+  static bool get hosted => Uri.base.host.endsWith('github.io');
+  static bool get configured => base.isNotEmpty || !hosted;
+  static Map<String, String> get headers =>
+      token.isEmpty ? {} : {'Authorization': 'Bearer $token'};
+  static void initialize() {
+    base = web.window.localStorage.getItem('goodmorning-api') ?? base;
+    token = web.window.sessionStorage.getItem('goodmorning-token') ?? '';
+    final fragment = Uri.splitQueryString(Uri.base.fragment);
+    if (fragment.containsKey('server')) {
+      configure(fragment['server']!, fragment['key'] ?? '');
+      web.window.history.replaceState(
+        null,
+        '',
+        '${Uri.base.path}${Uri.base.hasQuery ? '?${Uri.base.query}' : ''}',
+      );
+    }
+  }
+
+  static void configure(String server, String key) {
+    final parsed = Uri.tryParse(server.trim());
+    if (parsed == null ||
+        !parsed.hasAuthority ||
+        !(parsed.scheme == 'https' ||
+            parsed.scheme == 'http' &&
+                ['localhost', '127.0.0.1'].contains(parsed.host)) ||
+        parsed.userInfo.isNotEmpty ||
+        parsed.hasQuery ||
+        parsed.hasFragment ||
+        !['', '/'].contains(parsed.path)) {
+      throw const FormatException('https://로 시작하는 서버 주소를 입력해 주세요.');
+    }
+    base = parsed.origin;
+    token = key.trim();
+    _images.clear();
+    web.window.localStorage.setItem('goodmorning-api', base);
+    web.window.sessionStorage.setItem('goodmorning-token', token);
+  }
+
+  static Uri staticUri(String path) => Uri.base.resolve(path);
+  static Future<Uint8List> image(String path) =>
+      _images.putIfAbsent(path, () async {
+        final response = await http
+            .get(uri(path), headers: headers)
+            .timeout(const Duration(seconds: 30));
+        if (response.statusCode != 200) {
+          _images.remove(path);
+          throw Exception('이미지를 불러오지 못했어요.');
+        }
+        return response.bodyBytes;
+      });
   static Uri uri(String path) =>
       Uri.parse('${base.isEmpty ? Uri.base.origin : base}$path');
   static dynamic check(http.Response response) {
-    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('GPU 서버 연결에서 주소와 접근 키를 확인해 주세요.');
+    }
+    final dynamic data;
+    try {
+      data = jsonDecode(utf8.decode(response.bodyBytes));
+    } catch (_) {
+      throw Exception('서버 주소를 확인해 주세요. API 응답이 아닙니다.');
+    }
     if (response.statusCode >= 400) {
       throw Exception(
         data is Map && data['detail'] is String
@@ -18,13 +79,16 @@ class Api {
     return data;
   }
 
-  static Future<dynamic> get(String path) async =>
-      check(await http.get(uri(path)).timeout(const Duration(seconds: 20)));
+  static Future<dynamic> get(String path) async => check(
+    await http
+        .get(uri(path), headers: headers)
+        .timeout(const Duration(seconds: 20)),
+  );
   static Future<dynamic> save(Map<String, dynamic> diary) async => check(
     await http
         .put(
           uri('/api/diaries/${diary['id']}'),
-          headers: {'Content-Type': 'application/json'},
+          headers: {...headers, 'Content-Type': 'application/json'},
           body: jsonEncode(diary),
         )
         .timeout(const Duration(seconds: 20)),
@@ -36,6 +100,7 @@ class Api {
     Map<String, String> fields,
   ) async {
     final request = http.MultipartRequest('POST', uri(path))
+      ..headers.addAll(headers)
       ..fields.addAll(fields)
       ..files.add(
         http.MultipartFile.fromBytes('photo', bytes, filename: filename),

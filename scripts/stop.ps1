@@ -1,7 +1,8 @@
-param([switch]$TunnelOnly)
+param([switch]$TunnelOnly,[switch]$ServerOnly)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
-$names=if($TunnelOnly){@('tunnel')}else{@('tunnel','server')}
+if($TunnelOnly -and $ServerOnly){throw 'Choose either -TunnelOnly or -ServerOnly.'}
+$names=if($TunnelOnly){@('tunnel')}elseif($ServerOnly){@('server')}else{@('tunnel','server')}
 foreach($name in $names){
   $pidPath=Join-Path $projectRoot "logs\$name.pid"
   if(-not(Test-Path -LiteralPath $pidPath)){continue}
@@ -11,6 +12,17 @@ foreach($name in $names){
   if(-not $process.CommandLine.Contains($projectRoot)){throw "PID $ownedId no longer belongs to this project."}
   if($name -eq 'server' -and -not $process.CommandLine.Contains('uvicorn')){throw 'Unexpected server process.'}
   if($name -eq 'tunnel' -and -not $process.CommandLine.Contains('cloudflared')){throw 'Unexpected tunnel process.'}
-  Stop-Process -Id $ownedId
+  # Windows venv python.exe launches a child interpreter. Stop only descendants
+  # of the validated project process, so the listener is actually released.
+  $snapshot=Get-CimInstance Win32_Process
+  $descendants=[System.Collections.Generic.List[int]]::new()
+  $parents=@($ownedId)
+  while($parents.Count -gt 0){
+    $children=@($snapshot | Where-Object {$_.ParentProcessId -in $parents} | ForEach-Object {[int]$_.ProcessId})
+    foreach($childId in $children){$descendants.Add($childId)}
+    $parents=$children
+  }
+  for($index=$descendants.Count-1;$index -ge 0;$index--){Stop-Process -Id $descendants[$index] -ErrorAction SilentlyContinue}
+  Stop-Process -Id $ownedId -ErrorAction SilentlyContinue
   Write-Output "Stopped $name ($ownedId)"
 }

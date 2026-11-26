@@ -20,6 +20,9 @@ def requires_access(request):
     return bool(request.headers.get('cf-ray')) or request.url.hostname not in ('localhost','127.0.0.1','testserver','[::1]','::1')
 
 def authorized(request, key):
+    bearer = request.headers.get('authorization', '')
+    if bearer.startswith('Bearer '):
+        return hmac.compare_digest(bearer[7:].encode(), key.encode())
     return hmac.compare_digest(request.cookies.get(COOKIE,''), session(key))
 
 def connect_page():

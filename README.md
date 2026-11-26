@@ -2,7 +2,11 @@
 
 사진 속 굿즈를 모으고, 볼록 스티커로 만들어 다이어리를 꾸미는 **Flutter Web + 로컬 GPU 서버** 앱입니다.
 
-원본 [프로토타입](https://github.com/mokma18/goodmorning-prototype-demo)의 하늘색 UI와 홈·에셋·다이어리 구성을 Flutter로 옮겼습니다. 입체 다이어리는 Flutter의 웹 뷰 안에서 Three.js로 렌더링합니다. 스티커의 테두리·볼록 메시·유광 GLB 생성 함수는 [goodmorning-3d](https://github.com/bloodmoon3929/goodmorning-3d)의 `pipeline/sticker.py`에서 재사용합니다.
+프론트는 **[GitHub Pages](https://niraaah.github.io/GoodMorNing/)**, GPU API와 데이터 저장소는 **사용자 Windows PC**에서 실행합니다. GitHub Actions는 main에 push할 때 Flutter 웹을 빌드해서 Pages에 배포하며, GPU 작업을 실행하는 서버는 아닙니다.
+
+원본 [프로토타입](https://github.com/mokma18/goodmorning-prototype-demo)의 `?home` 소스를 기준으로 금고, 토끼, 로고, 글꼴, 색상, 입체 효과, 하단 메뉴를 재사용합니다. **Flutter 앱의 HtmlElementView 안에 원본 HTML/CSS 홈을 넣은 혼합 구조**이며, 모든 UI를 네이티브 Flutter 위젯으로 다시 그린 구현은 아닙니다. 에셋함과 다이어리 도구는 Flutter이고, 입체 다이어리는 Three.js입니다. 에셋함은 원본처럼 중앙의 좁은 화면과 3열 그리드를 사용합니다. 다이어리 편집 화면은 기존 기능을 유지하며 원본의 전체 다이어리 연출과 동일하지 않습니다.
+
+스티커의 테두리·볼록 메시·유광 GLB 생성 함수는 [goodmorning-3d](https://github.com/bloodmoon3929/goodmorning-3d)의 `pipeline/sticker.py`에서 재사용합니다. 홈의 기존 샘플 배치는 원본 방식대로 브라우저에 보관하고, 생성한 에셋과 앱 다이어리는 PC의 DB에 저장합니다.
 
 ## 구현된 기능
 
@@ -13,7 +17,20 @@
 - 다이어리에 스티커와 폴라로이드 추가, 끌어서 이동, 크기·회전·순서 조절, 선택 항목 제거
 - 다이어리 제목·메모·종이 색 편집, 입체 기울이기, PNG 내보내기
 - SQLite에 에셋·생성 작업·다이어리 저장. 새로고침 후 다시 불러오기
-- 같은 PC에서 앱과 API를 함께 제공. 접근 키로 보호된 임시 외부 접속 링크
+- GitHub Pages 정적 프론트 + 접근 키로 보호된 로컬 GPU API. 같은 PC에서 앱/API를 함께 제공하는 방식도 유지
+
+## GitHub Pages + 로컬 GPU 연결
+
+1. [앱 주소](https://niraaah.github.io/GoodMorNing/)를 엽니다. 홈은 PC가 꺼져 있어도 열립니다.
+2. PC에서 `scripts/start.ps1`, `scripts/tunnel.ps1`을 실행합니다.
+3. 터널 스크립트가 출력하는 Pages 연결 링크를 엽니다. 또는 앱의 **에셋 → 서버 연결**에서 HTTPS 터널 주소와 `data/access.key`의 값을 입력합니다.
+4. 사진 업로드·생성·에셋·다이어리는 연결된 PC에서 처리합니다. PC, API, 터널이 모두 켜져 있어야 합니다.
+
+서버 주소는 localStorage, 접근 키는 해당 탭의 sessionStorage에 보관합니다. 연결 링크의 fragment는 읽은 직후 주소창에서 제거합니다. API 요청은 Authorization Bearer 헤더를 사용하므로 서드파티 쿠키에 의존하지 않습니다. 키는 공개 코드·Actions 변수·배포 파일에 넣지 않습니다.
+
+CORS 기본 허용 출처는 `https://niraaah.github.io`입니다. 다른 프론트 도메인을 쓰려면 서버 실행 전 `GOODMORNING_FRONTEND_ORIGINS`를 쉼표로 구분해 설정하세요. 임시 Cloudflare 터널을 다시 시작하면 서버 주소가 바뀌므로 새 연결 링크를 사용해야 합니다. Pages의 앱 주소는 유지됩니다.
+
+`.github/workflows/pages.yml`은 고정 Flutter 버전과 고정 submodule을 사용해 정적 파일을 만들고 Pages에 배포합니다. GitHub 저장소 Settings → Pages → Source는 GitHub Actions로 설정합니다. 별도 Node 서버나 프론트 실행 파일을 받을 필요가 없습니다.
 
 ## 스티커 처리 흐름
 
@@ -37,13 +54,17 @@ flowchart LR
 
 ```text
 GoodMorNing/
+├─ .github/workflows/pages.yml  main push → Flutter 빌드 → Pages 배포
 ├─ app/                         Flutter Web 앱
 │  ├─ lib/
 │  │  ├─ main.dart             홈·에셋함·다이어리·사진 선택 화면
 │  │  ├─ api.dart              API 요청과 업로드
-│  │  └─ diary_scene.dart      Flutter ↔ Three.js 메시지 연결
+│  │  ├─ diary_scene.dart      Flutter ↔ Three.js 메시지 연결
+│  │  └─ reference_view.dart   원본 홈·메뉴 ↔ Flutter 탭 연결
 │  ├─ assets/wordmark.png      원본 프로토타입 워드마크
 │  ├─ web/                    웹 진입점·아이콘·manifest
+│  │  ├─ reference/           빌드 때 원본 소스·폰트·샘플 복사 (Git 제외)
+│  │  └─ scene/               빌드 때 입체 렌더러 복사 (Git 제외)
 │  ├─ test/                   API 응답 처리 테스트
 │  └─ pubspec.yaml
 ├─ server/
@@ -60,6 +81,7 @@ GoodMorNing/
 │  ├─ setup.ps1               새 PC에서 환경 구성
 │  ├─ setup_models.py         고정 버전 SAM 2 ONNX 모델 다운로드
 │  ├─ build.ps1               Flutter 웹 빌드
+│  ├─ prepare_frontend.py      원본 홈·메뉴·정적 3D 파일 준비
 │  ├─ start.ps1               앱/API 백그라운드 실행
 │  ├─ tunnel.ps1              외부 접속 링크 생성
 │  ├─ stop.ps1                이 프로젝트의 서버·터널 종료
@@ -152,7 +174,8 @@ cd GoodMorNing
 
 - SAM 2.1이 RX 9070 XT의 DirectML provider에서 실제 실행됨을 프로파일로 확인했습니다. 일부 연산은 CPU provider가 처리합니다.
 - 저장소 샘플의 선택 영역으로 GPU/CPU 결과를 비교했으며, 제공된 참조 마스크와의 IoU는 약 0.971입니다. 전체 사진을 선택하는 경우 같은 품질을 보장하지 않습니다.
-- 서버 자동 테스트 4개와 Dart 응답 처리 테스트 2개가 통과했고 Flutter release 웹 빌드가 완료되었습니다.
+- 최초 구현 당시 서버 자동 테스트 4개와 Dart 응답 처리 테스트 2개가 통과했습니다. 이후 Pages/CORS/외형 변경에는 이 결과를 적용하지 않습니다.
+- 최신 외형 수정은 사용자 요청에 따라 **캡처 없이 원본 소스 기준**으로 진행했습니다. 브라우저 시각 비교와 기능 테스트는 수행하지 않았습니다. 빌드·배포 성공은 실제 브라우저 동작 검증을 뜻하지 않습니다.
 - Flutter 분석에는 스타일 관련 info가 남아 있습니다. 웹 브라우저에서의 최종 조작·시각 검증은 사용자가 직접 진행할 예정이며 완료로 표시하지 않습니다.
 - 사용자 요청에 따라 추가 자동 테스트는 중단했습니다. 제공한 확인 스크립트는 필요할 때 직접 실행할 수 있습니다.
 - 샘플 생성 확인 스크립트는 실제 에셋과 다이어리 데이터를 추가합니다.

@@ -7,12 +7,18 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'api.dart';
 import 'diary_scene.dart';
+import 'reference_view.dart';
 
 const ink = Color(0xff294653),
     blue = Color(0xff659bb7),
-    sky = Color(0xffeff7fb),
+    sky = Color(0xffeef7fc),
     line = Color(0xffd5e5ed);
-void main() => runApp(const GoodMorning());
+void main() {
+  try {
+    Api.initialize();
+  } catch (_) {}
+  runApp(const GoodMorning());
+}
 
 class GoodMorning extends StatelessWidget {
   const GoodMorning({super.key});
@@ -100,6 +106,10 @@ class _StudioState extends State<Studio> {
   }
 
   Future<void> load() async {
+    if (!Api.configured) {
+      setState(() => loading = false);
+      return;
+    }
     try {
       final result = await Future.wait([
         Api.get('/api/assets'),
@@ -342,16 +352,24 @@ class _StudioState extends State<Studio> {
     Map<String, dynamic> asset, {
     double? width,
     double? height,
-  }) => Image.network(
-    Api.uri(asset['thumbnail']).toString(),
+  }) => SizedBox(
     width: width,
     height: height,
-    fit: BoxFit.contain,
-    errorBuilder: (_, e, s) =>
-        const Icon(Icons.broken_image_outlined, color: blue),
-    loadingBuilder: (c, w, p) => p == null
-        ? w
-        : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+    child: FutureBuilder<Uint8List>(
+      future: Api.image(asset['thumbnail']),
+      builder: (_, snapshot) => snapshot.hasData
+          ? Image.memory(
+              snapshot.data!,
+              width: width,
+              height: height,
+              fit: BoxFit.contain,
+              errorBuilder: (_, e, s) =>
+                  const Icon(Icons.broken_image_outlined, color: blue),
+            )
+          : snapshot.hasError
+          ? const Icon(Icons.broken_image_outlined, color: blue)
+          : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+    ),
   );
   Widget pill(String text, {Color? color}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -368,204 +386,200 @@ class _StudioState extends State<Studio> {
       ),
     ),
   );
-  @override
-  Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 1000;
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: sky,
-        surfaceTintColor: Colors.transparent,
-        toolbarHeight: 82,
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/wordmark.png',
-              width: 140,
-              height: 60,
-              fit: BoxFit.contain,
+  Future<void> connectServer() async {
+    final address = TextEditingController(text: Api.base);
+    final key = TextEditingController(text: Api.token);
+    String? failure;
+    bool busy = false;
+    final connected = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, update) => AlertDialog(
+          title: const Text('GPU 서버 연결'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'PC에서 실행한 서버의 외부 주소와 접근 키를 입력해 주세요. 사진과 다이어리는 PC에 저장됩니다.',
+                  style: TextStyle(fontSize: 13, height: 1.7),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(
+                    labelText: '서버 주소',
+                    hintText: 'https://…trycloudflare.com',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: key,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: '접근 키'),
+                ),
+                if (failure != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      failure!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
+                  ),
+              ],
             ),
-            if (wide) ...[
-              const SizedBox(width: 20),
-              const Text(
-                '나의 작은 수집방',
-                style: TextStyle(fontSize: 13, color: Color(0xff77929f)),
-              ),
-            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(ctx),
+              child: const Text('닫기'),
+            ),
+            FilledButton(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      update(() => busy = true);
+                      try {
+                        Api.configure(address.text, key.text);
+                        final result = await Api.get('/api/health');
+                        if (result['engine'] != 'sam2-gaussian')
+                          throw Exception('굿모닝 GPU 서버 주소를 입력해 주세요.');
+                        if (ctx.mounted) Navigator.pop(ctx, true);
+                      } catch (e) {
+                        if (ctx.mounted)
+                          update(() {
+                            failure = e.toString();
+                            busy = false;
+                          });
+                      }
+                    },
+              child: Text(busy ? '연결 중…' : '연결'),
+            ),
           ],
         ),
-        actions: [
-          if (health != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 18),
-              child: pill('●  내 PC에 저장', color: const Color(0xffe3efe5)),
-            ),
-          if (wide)
-            Padding(
-              padding: const EdgeInsets.only(right: 28),
-              child: FilledButton.icon(
-                onPressed: createSticker,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('스티커 만들기'),
-              ),
-            ),
-        ],
       ),
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
-              backgroundColor: Colors.white,
-              selectedIndex: tab,
-              onDestinationSelected: (v) => setState(() => tab = v),
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.cottage_outlined),
-                  label: '홈',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.inventory_2_outlined),
-                  label: '에셋',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.auto_stories_outlined),
-                  label: '다이어리',
-                ),
-              ],
-            ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : error != null && assets.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('서버에 연결하지 못했어요'),
-                  const SizedBox(height: 12),
-                  Text(error!),
-                  TextButton(onPressed: load, child: const Text('다시 연결')),
-                ],
-              ),
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    );
+    address.dispose();
+    key.dispose();
+    if (connected == true && mounted) {
+      setState(() {
+        assets = [];
+        diaries = [];
+        jobs = [];
+        diaryId = null;
+        selected = null;
+        health = null;
+        loading = true;
+      });
+      await load();
+    }
+  }
+
+  void navigate(int value) => setState(() => tab = value);
+
+  @override
+  Widget build(BuildContext context) {
+    if (tab == 0) return Scaffold(body: ReferenceView(onNavigate: navigate));
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 568),
+            child: Column(
               children: [
-                if (wide) sidebar(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: SizedBox(
+                    height: 60,
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => navigate(0),
+                          child: Image.asset(
+                            'assets/brand-banner.jpg',
+                            width:
+                                MediaQuery.sizeOf(
+                                  context,
+                                ).width.clamp(314, 454) *
+                                .43,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: connectServer,
+                          child: Text(
+                            health == null ? '서버 연결' : '연결됨',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 Expanded(
-                  child: tab == 0
-                      ? home()
+                  child: loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : (!Api.configured || error != null && assets.isEmpty)
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(28),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  '내 PC의 수집방 연결하기',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  error == null
+                                      ? 'GPU 서버를 연결하면 에셋과 다이어리를 불러올 수 있어요.'
+                                      : 'PC의 GPU 서버와 외부 연결이 켜져 있는지 확인해 주세요.',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    height: 1.7,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                FilledButton(
+                                  onPressed: connectServer,
+                                  child: const Text('GPU 서버 연결'),
+                                ),
+                                if (Api.configured)
+                                  TextButton(
+                                    onPressed: load,
+                                    child: const Text('다시 불러오기'),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        )
                       : tab == 1
                       ? library()
-                      : editor(wide),
+                      : editor(false),
+                ),
+                SizedBox(
+                  height: 71,
+                  child: ReferenceView(
+                    navigationOnly: true,
+                    tab: tab,
+                    onNavigate: navigate,
+                  ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
     );
   }
 
-  Widget sidebar() => Container(
-    width: 210,
-    margin: const EdgeInsets.fromLTRB(20, 8, 16, 20),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .64),
-      borderRadius: BorderRadius.circular(22),
-      border: Border.all(color: line),
-    ),
-    child: Column(
-      children: [
-        for (final item in [
-          (Icons.cottage_outlined, '홈'),
-          (Icons.inventory_2_outlined, '에셋 보관함'),
-          (Icons.auto_stories_outlined, '나의 다이어리'),
-        ])
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: ListTile(
-              selected:
-                  tab ==
-                  [
-                    (Icons.cottage_outlined, '홈'),
-                    (Icons.inventory_2_outlined, '에셋 보관함'),
-                    (Icons.auto_stories_outlined, '나의 다이어리'),
-                  ].indexOf(item),
-              selectedTileColor: const Color(0xffe1eff7),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              leading: Icon(item.$1, color: ink),
-              title: Text(item.$2, style: const TextStyle(fontSize: 13)),
-              onTap: () => setState(
-                () => tab = item.$2 == '홈'
-                    ? 0
-                    : item.$2 == '에셋 보관함'
-                    ? 1
-                    : 2,
-              ),
-            ),
-          ),
-        const SizedBox(height: 26),
-        const Divider(color: line),
-        const SizedBox(height: 10),
-        const Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            'MY DIARIES',
-            style: TextStyle(fontSize: 10, letterSpacing: 2, color: blue),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Expanded(
-          child: ListView(
-            children: [
-              for (final d in diaries)
-                ListTile(
-                  dense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 5),
-                  leading: const Icon(
-                    Icons.bookmark_border,
-                    size: 17,
-                    color: blue,
-                  ),
-                  title: Text(
-                    d['title'],
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  onTap: () => setState(() {
-                    diaryId = d['id'];
-                    selected = null;
-                    tab = 2;
-                  }),
-                ),
-              TextButton.icon(
-                onPressed: newDiary,
-                icon: const Icon(Icons.add, size: 15),
-                label: const Text('새 다이어리'),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: sky,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.favorite_border, color: blue, size: 20),
-              SizedBox(height: 8),
-              Text(
-                '좋아하는 것들을\n오래오래, 가까이.',
-                style: TextStyle(fontSize: 12, height: 1.8, color: ink),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
   Widget heading(
     String overline,
     String title,
@@ -614,209 +628,16 @@ class _StudioState extends State<Studio> {
       ],
     ),
   );
-  Widget home() => ListView(
-    padding: const EdgeInsets.fromLTRB(24, 24, 28, 30),
-    children: [
-      heading(
-        'GOOD THINGS, GOOD MORNING',
-        '작은 취향이 모이는 곳',
-        '오늘 발견한 귀여움을, 나만의 스티커와 기록으로 남겨요.',
-      ),
-      Container(
-        height: 260,
-        padding: const EdgeInsets.all(28),
-        decoration: BoxDecoration(
-          color: const Color(0xffdcecf5),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xffc7dfea)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  pill(
-                    'PHOTO → MY STICKER',
-                    color: Colors.white.withValues(alpha: .65),
-                  ),
-                  const SizedBox(height: 17),
-                  const Text(
-                    '사진 한 장이\n나만의 볼록 스티커로',
-                    style: TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w700,
-                      height: 1.4,
-                      color: ink,
-                    ),
-                  ),
-                  const SizedBox(height: 17),
-                  FilledButton.icon(
-                    onPressed: createSticker,
-                    icon: const Icon(Icons.auto_awesome, size: 17),
-                    label: const Text('첫 스티커 만들기'),
-                  ),
-                ],
-              ),
-            ),
-            if (MediaQuery.sizeOf(context).width > 600)
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 180,
-                      height: 180,
-                      decoration: const BoxDecoration(
-                        color: Color(0xffedf6fa),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    if (assets.isNotEmpty)
-                      Transform.rotate(
-                        angle: -.14,
-                        child: thumbnail(assets.last, width: 165, height: 195),
-                      ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 28),
-      Row(
-        children: [
-          const Text(
-            '나의 다이어리',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: newDiary,
-            icon: const Icon(Icons.add, size: 17),
-            label: const Text('새로 만들기'),
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
-      Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: [
-          for (final d in diaries)
-            InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: () => setState(() {
-                diaryId = d['id'];
-                tab = 2;
-                selected = null;
-              }),
-              child: Container(
-                width: 240,
-                height: 260,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xfffffbef),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xffe5ddc9)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.auto_stories_outlined,
-                          color: blue,
-                          size: 20,
-                        ),
-                        const Spacer(),
-                        Text(
-                          d['date'],
-                          style: const TextStyle(fontSize: 10, color: blue),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      d['title'],
-                      maxLines: 2,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          for (final p in (d['placements'] as List).take(2))
-                            if (assets.any((a) => a['id'] == p['asset_id']))
-                              Expanded(
-                                child: Transform.rotate(
-                                  angle:
-                                      (p['rotation'] as num).toDouble() *
-                                      math.pi /
-                                      180,
-                                  child: thumbnail(
-                                    assets.firstWhere(
-                                      (a) => a['id'] == p['asset_id'],
-                                    ),
-                                    height: 110,
-                                  ),
-                                ),
-                              ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '${(d['placements'] as List).length}개의 작은 기억',
-                      style: const TextStyle(fontSize: 11, color: blue),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-      const SizedBox(height: 28),
-      Row(
-        children: [
-          const Text(
-            '최근 모은 에셋',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const Spacer(),
-          TextButton(
-            onPressed: () => setState(() => tab = 1),
-            child: const Text('모두 보기 →'),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      SizedBox(
-        height: 145,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: assets.length.clamp(0, 8),
-          separatorBuilder: (_, i) => const SizedBox(width: 12),
-          itemBuilder: (_, i) =>
-              SizedBox(width: 130, child: assetCard(assets[i])),
-        ),
-      ),
-    ],
-  );
   Widget assetCard(Map<String, dynamic> asset, {bool compact = false}) =>
       InkWell(
         onTap: () => showAsset(asset),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: line),
-            borderRadius: BorderRadius.circular(18),
+            color: const Color(0xffe6f2fa),
+            border: Border.all(color: const Color(0xffc9dfe9)),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
             children: [
@@ -873,12 +694,14 @@ class _StudioState extends State<Studio> {
         .where((a) => a['name'].toString().contains(search))
         .toList();
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 28, 30),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        heading(
-          'MY LITTLE COLLECTION',
-          '에셋 보관함',
-          '사진 속 굿즈를 모아 두고, 다이어리에 자유롭게 붙여요.',
+        const Padding(
+          padding: EdgeInsets.only(bottom: 16),
+          child: Text(
+            '내 에셋',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
         ),
         Row(
           children: [
@@ -955,11 +778,11 @@ class _StudioState extends State<Studio> {
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 220,
-            childAspectRatio: .90,
-            crossAxisSpacing: 15,
-            mainAxisSpacing: 15,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: .86,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
           ),
           itemCount: filtered.length,
           itemBuilder: (_, i) => assetCard(filtered[i]),
@@ -1061,7 +884,9 @@ class _StudioState extends State<Studio> {
               : ListView(
                   children: [
                     SizedBox(
-                      height: MediaQuery.sizeOf(context).width * 1.15,
+                      height:
+                          MediaQuery.sizeOf(context).width.clamp(280, 536) *
+                          1.15,
                       child: canvas,
                     ),
                     tools(),

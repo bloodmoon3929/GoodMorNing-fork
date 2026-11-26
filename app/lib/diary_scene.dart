@@ -37,7 +37,7 @@ class DiarySceneState extends State<DiaryScene> {
     super.initState();
     viewType = 'goodmorning-diary-${count++}';
     frame = web.HTMLIFrameElement()
-      ..src = Api.uri('/scene/index.html').toString()
+      ..src = Api.staticUri('scene/index.html').toString()
       ..title = '입체 다이어리 편집'
       ..style.border = 'none'
       ..style.width = '100%'
@@ -45,7 +45,7 @@ class DiarySceneState extends State<DiaryScene> {
     ui_web.platformViewRegistry.registerViewFactory(viewType, (_) => frame);
     listener = ((web.MessageEvent event) {
       if (!mounted ||
-          event.origin != Api.uri('/').origin ||
+          event.origin != Uri.base.origin ||
           event.source != frame.contentWindow)
         return;
       final value = event.data.dartify();
@@ -69,7 +69,7 @@ class DiarySceneState extends State<DiaryScene> {
     if (ready)
       frame.contentWindow?.postMessage(
         {'source': 'goodmorning-app', ...data}.jsify(),
-        Api.uri('/').origin.toJS,
+        Uri.base.origin.toJS,
       );
   }
 
@@ -78,7 +78,18 @@ class DiarySceneState extends State<DiaryScene> {
       'type': 'load',
       'data': {
         'diary': widget.diary,
-        'assets': widget.assets,
+        'assets': widget.assets
+            .map(
+              (a) => {
+                ...a,
+                'thumbnail': Api.uri(a['thumbnail']).toString(),
+                'model': a['model'] == null
+                    ? null
+                    : Api.uri(a['model']).toString(),
+              },
+            )
+            .toList(),
+        'headers': Api.headers,
         'selected': widget.selected,
       },
     });

@@ -56,7 +56,12 @@ async function model(asset){
   if(cache.has(asset.id))return cache.get(asset.id);
   let object;
   if(asset.kind==='photo'){
-    const tex=await textureLoader.loadAsync(asset.thumbnail);tex.colorSpace=THREE.SRGBColorSpace;
+    const response=await fetch(asset.thumbnail,{headers:data.headers||{}});
+    if(!response.ok)throw Error('사진을 불러오지 못했어요.');
+    const url=URL.createObjectURL(await response.blob());
+    let tex;
+    try{tex=await textureLoader.loadAsync(url);}finally{URL.revokeObjectURL(url);}
+    tex.colorSpace=THREE.SRGBColorSpace;
     const ratio=tex.image.height/tex.image.width;
     object=new THREE.Group();
     const frame=new THREE.Mesh(new THREE.BoxGeometry(1.12,ratio+.2,.015),new THREE.MeshStandardMaterial({color:0xfffef8,roughness:.8}));
@@ -64,6 +69,7 @@ async function model(asset){
     const photo=new THREE.Mesh(new THREE.PlaneGeometry(1,ratio),new THREE.MeshBasicMaterial({map:tex}));
     photo.position.set(0,.035,.02);object.add(photo);
   }else{
+    loader.setRequestHeader(data.headers||{});
     object=(await loader.loadAsync(asset.model)).scene;
     object.traverse(o=>{if(o.isMesh){o.material.side=THREE.DoubleSide;}});
   }

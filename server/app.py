@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from PIL import Image
 
@@ -129,6 +130,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title='굿모닝 · local studio', lifespan=lifespan)
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv('GOODMORNING_FRONTEND_ORIGINS', 'https://niraaah.github.io').split(',') if origin.strip()]
 
 
 @app.middleware('http')
@@ -136,9 +138,10 @@ async def same_origin(request: Request, call_next):
     origin = request.headers.get('origin')
     if request.method not in ('GET', 'HEAD', 'OPTIONS') and origin:
         parsed = urlsplit(origin)
-        if parsed.scheme not in ('http', 'https') or parsed.netloc != request.headers.get('host'):
+        if origin not in ALLOWED_ORIGINS and (parsed.scheme not in ('http', 'https') or parsed.netloc != request.headers.get('host')):
             return JSONResponse({'detail': '다른 사이트에서 보낸 요청은 허용되지 않습니다.'}, 403)
-    if request.url.path not in ('/connect','/auth/login') and requires_access(request) and not authorized(request,app.state.access_key):
+    external_frontend = origin in ALLOWED_ORIGINS and urlsplit(origin).netloc != request.headers.get('host')
+    if request.url.path not in ('/connect','/auth/login') and (requires_access(request) or external_frontend) and not authorized(request,app.state.access_key):
         if request.url.path.startswith(('/api/','/files/')):
             return JSONResponse({'detail':'접속 링크로 먼저 로그인해 주세요.'},401)
         return RedirectResponse('/connect',status_code=303)
@@ -147,6 +150,11 @@ async def same_origin(request: Request, call_next):
     response.headers['X-Content-Type-Options']='nosniff'
     response.headers['X-Frame-Options']='SAMEORIGIN'
     return response
+
+
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS,
+                   allow_credentials=False, allow_methods=['GET', 'POST', 'PUT', 'OPTIONS'],
+                   allow_headers=['Authorization', 'Content-Type'], max_age=600)
 
 
 @app.get('/connect',include_in_schema=False)

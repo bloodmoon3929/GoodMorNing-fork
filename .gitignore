@@ -11,3 +11,6 @@ server/*.local.json
 *.key
 *.log
 access-link.txt
+app/web/reference/
+app/web/scene/
+pages-link.txt

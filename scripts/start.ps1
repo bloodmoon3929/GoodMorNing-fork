@@ -4,7 +4,7 @@ $projectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $projectRoot
 $pythonPath = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath)) { throw 'Python environment missing.' }
-if (-not (Test-Path -LiteralPath 'app\build\web\index.html')) { throw 'Run scripts\build.ps1 first.' }
+if (-not (Test-Path -LiteralPath 'app\build\web\index.html')) { Write-Output 'Starting API only. Use the GitHub Pages frontend, or run scripts\build.ps1 for local UI.' }
 $logsPath = Join-Path $projectRoot 'logs'
 New-Item -ItemType Directory -Path $logsPath -Force | Out-Null
 if ($Foreground) {
