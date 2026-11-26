@@ -10,6 +10,7 @@
 
 ## 구현된 기능
 
+- 원본 **훔쳐보기** 탭: 포치타·디무 다이어리 카드, 원본 샘플 다이어리 열람과 목록 복귀. [직접 열기](https://niraaah.github.io/GoodMorNing/?browse). GPU 연결 없이 열람 가능하며, 실제 이용자의 비공개 다이어리를 공개하는 기능은 아닙니다.
 - 사진 업로드 후 사각형으로 굿즈 영역 선택
 - **SAM 2.1**로 누끼 분리: Windows의 ONNX Runtime DirectML로 로컬 AMD GPU 사용
 - 누끼 이미지로 가우시안 입자와 볼록한 표면을 만들고 `.ply`, `.splat`, `.glb`, PNG 저장
@@ -62,7 +63,7 @@ GoodMorNing/
 │  │  ├─ main.dart             홈·에셋함·다이어리·사진 선택 화면
 │  │  ├─ api.dart              API 요청과 업로드
 │  │  ├─ diary_scene.dart      Flutter ↔ Three.js 메시지 연결
-│  │  └─ reference_view.dart   원본 홈·메뉴 ↔ Flutter 탭 연결
+│  │  └─ reference_view.dart   원본 홈·훔쳐보기·메뉴 ↔ Flutter 탭 연결
 │  ├─ assets/wordmark.png      원본 프로토타입 워드마크
 │  ├─ web/                    웹 진입점·아이콘·manifest
 │  │  ├─ reference/           빌드 때 원본 소스·폰트·샘플 복사 (Git 제외)

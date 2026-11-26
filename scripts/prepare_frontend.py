@@ -44,9 +44,10 @@ document.addEventListener('click',event=>{
   const link=event.target.closest('a[data-section], .topbar h1 a');
   if(!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   const section=link.dataset.section||'home';
-  if(section==='magnets' && !draft) return; // Source safe-opening animation navigates through its own bridge.
+  if(section==='magnets' && home && !draft) return; // Keep the source safe-opening animation on home only.
+  if(section==='browse' && !home) return; // Return from a sample diary to the original browse grid inside the frame.
   event.preventDefault();event.stopImmediatePropagation();
-  parent.postMessage({source:'goodmorning-reference',tab:section==='assets'?1:section==='magnets'?2:0},location.origin);
+  parent.postMessage({source:'goodmorning-reference',tab:section==='assets'?1:section==='magnets'?2:section==='browse'?3:0},location.origin);
 },true);
 </script>'''
 html=html.replace('</body>',bridge+'</body>')
@@ -54,7 +55,7 @@ html=html.replace('</body>',bridge+'</body>')
 (REF/'source.css').write_text(css,encoding='utf-8')
 nav=nav.replace('data-wordmark',f'src="{wordmark}"')
 (REF/'nav.html').write_text('''<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="source.css"><style>html,body{height:100%;overflow:hidden}.bottom-nav{width:100%;position:absolute}</style></head><body>'''+nav+'''<script>
-const tabs=['home','assets','magnets'];
+const tabs=['home','assets','magnets','browse'];
 document.querySelector('[data-section="'+tabs[Number(new URLSearchParams(location.search).get('tab'))||0]+'"]').setAttribute('aria-current','page');
 document.addEventListener('click',event=>{const link=event.target.closest('a');if(!link)return;event.preventDefault();parent.postMessage({source:'goodmorning-reference',tab:tabs.indexOf(link.dataset.section)},location.origin);});
 </script></body></html>''',encoding='utf-8')

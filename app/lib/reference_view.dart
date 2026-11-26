@@ -4,7 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:web/web.dart' as web;
 import 'api.dart';
 
-/// Original prototype's CSS safe and navigation, embedded in the Flutter app.
+/// Original prototype's home, browse pages and navigation in the Flutter app.
 class ReferenceView extends StatefulWidget {
   final bool navigationOnly;
   final int tab;
@@ -32,9 +32,13 @@ class _ReferenceViewState extends State<ReferenceView> {
       ..src = Api.staticUri(
         widget.navigationOnly
             ? 'reference/nav.html?tab=${widget.tab}'
-            : 'reference/index.html?home',
+            : 'reference/index.html?${widget.tab == 3 ? 'browse' : 'home'}',
       ).toString()
-      ..title = (widget.navigationOnly ? '굿모닝 메뉴' : '내 금고')
+      ..title = (widget.navigationOnly
+          ? '굿모닝 메뉴'
+          : widget.tab == 3
+          ? '훔쳐보기'
+          : '내 금고')
       ..style.border = 'none'
       ..style.width = '100%'
       ..style.height = '100%';
@@ -48,7 +52,7 @@ class _ReferenceViewState extends State<ReferenceView> {
           data['source'] == 'goodmorning-reference' &&
           data['tab'] is int) {
         final tab = data['tab'] as int;
-        if (tab >= 0 && tab <= 2) widget.onNavigate(tab);
+        if (tab >= 0 && tab <= 3) widget.onNavigate(tab);
       }
     }).toJS;
     web.window.addEventListener('message', listener);
@@ -57,9 +61,11 @@ class _ReferenceViewState extends State<ReferenceView> {
   @override
   void didUpdateWidget(covariant ReferenceView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.navigationOnly && oldWidget.tab != widget.tab)
+    if (oldWidget.tab != widget.tab)
       frame.src = Api.staticUri(
-        'reference/nav.html?tab=${widget.tab}',
+        widget.navigationOnly
+            ? 'reference/nav.html?tab=${widget.tab}'
+            : 'reference/index.html?${widget.tab == 3 ? 'browse' : 'home'}',
       ).toString();
   }
 

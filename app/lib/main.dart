@@ -72,7 +72,7 @@ class _StudioState extends State<Studio> {
   List<Map<String, dynamic>> assets = [], diaries = [], jobs = [];
   Map<String, dynamic>? health;
   String? error, diaryId, selected;
-  int tab = 0;
+  int tab = Uri.base.queryParameters.containsKey('browse') ? 3 : 0;
   bool loading = true, tilt = false, saving = false, polling = false;
   String search = '', saveStatus = '저장됨';
   Timer? poll, saveTimer;
@@ -490,7 +490,11 @@ class _StudioState extends State<Studio> {
 
   @override
   Widget build(BuildContext context) {
-    if (tab == 0) return Scaffold(body: ReferenceView(onNavigate: navigate));
+    if (tab == 0 || tab == 3) {
+      return Scaffold(
+        body: ReferenceView(tab: tab, onNavigate: navigate),
+      );
+    }
     return Scaffold(
       body: SafeArea(
         child: Center(
