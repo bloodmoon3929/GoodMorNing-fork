@@ -1,0 +1,1484 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:file_picker/file_picker.dart';
+import 'package:material_ui/material_ui.dart';
+import 'api.dart';
+import 'diary_scene.dart';
+
+const ink = Color(0xff294653),
+    blue = Color(0xff659bb7),
+    sky = Color(0xffeff7fb),
+    line = Color(0xffd5e5ed);
+void main() => runApp(const GoodMorning());
+
+class GoodMorning extends StatelessWidget {
+  const GoodMorning({super.key});
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: '굿모닝 · 나의 작은 수집방',
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      useMaterial3: true,
+      scaffoldBackgroundColor: sky,
+      fontFamily: 'Malgun Gothic',
+      colorScheme: ColorScheme.fromSeed(seedColor: blue, surface: Colors.white),
+      textTheme: const TextTheme(
+        bodyMedium: TextStyle(color: ink),
+        titleLarge: TextStyle(color: ink, fontWeight: FontWeight.w700),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: ink,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xfff6fafc),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: line),
+        ),
+      ),
+    ),
+    home: const Studio(),
+  );
+}
+
+class Studio extends StatefulWidget {
+  const Studio({super.key});
+  @override
+  State<Studio> createState() => _StudioState();
+}
+
+class _StudioState extends State<Studio> {
+  List<Map<String, dynamic>> assets = [], diaries = [], jobs = [];
+  Map<String, dynamic>? health;
+  String? error, diaryId, selected;
+  int tab = 0;
+  bool loading = true, tilt = false, saving = false, polling = false;
+  String search = '', saveStatus = '저장됨';
+  Timer? poll, saveTimer;
+  final pending = <String, String>{};
+  final sceneKey = GlobalKey<DiarySceneState>();
+  Map<String, dynamic>? get diary =>
+      diaries.where((d) => d['id'] == diaryId).firstOrNull;
+  List<Map<String, dynamic>> get placements =>
+      List<Map<String, dynamic>>.from(diary?['placements'] ?? []);
+  Map<String, dynamic>? get selection =>
+      placements.where((p) => p['id'] == selected).firstOrNull;
+  @override
+  void initState() {
+    super.initState();
+    load();
+    poll = Timer.periodic(const Duration(seconds: 2), (_) => pollJobs());
+  }
+
+  @override
+  void dispose() {
+    poll?.cancel();
+    saveTimer?.cancel();
+    super.dispose();
+  }
+
+  void notify(String text) {
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  Future<void> load() async {
+    try {
+      final result = await Future.wait([
+        Api.get('/api/assets'),
+        Api.get('/api/diaries'),
+        Api.get('/api/jobs'),
+        Api.get('/api/health'),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        assets = List<Map<String, dynamic>>.from(result[0]);
+        diaries = List<Map<String, dynamic>>.from(result[1]);
+        jobs = List<Map<String, dynamic>>.from(result[2]);
+        health = Map<String, dynamic>.from(result[3]);
+        diaryId ??= diaries.firstOrNull?['id'];
+        loading = false;
+        error = null;
+      });
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          loading = false;
+          error = e.toString();
+        });
+    }
+  }
+
+  Future<void> pollJobs() async {
+    if (polling || !jobs.any((j) => ['queued', 'running'].contains(j['state'])))
+      return;
+    polling = true;
+    try {
+      final fresh = List<Map<String, dynamic>>.from(await Api.get('/api/jobs'));
+      final completed = fresh.any(
+        (j) =>
+            j['state'] == 'completed' &&
+            jobs.any(
+              (old) => old['id'] == j['id'] && old['state'] != 'completed',
+            ),
+      );
+      final library = completed
+          ? List<Map<String, dynamic>>.from(await Api.get('/api/assets'))
+          : assets;
+      if (mounted)
+        setState(() {
+          jobs = fresh;
+          assets = library;
+        });
+      if (completed) notify('새 볼록 스티커가 에셋함에 도착했어요!');
+    } catch (e) {
+      if (mounted)
+        setState(() => error = '서버 연결을 확인해 주세요. 만들던 작업은 서버에 남아 있어요.');
+    } finally {
+      polling = false;
+    }
+  }
+
+  void changed() {
+    if (diary == null) return;
+    pending[diary!['id']] = jsonEncode(diary);
+    saveStatus = '저장 중…';
+    saveTimer?.cancel();
+    saveTimer = Timer(const Duration(milliseconds: 450), flush);
+  }
+
+  Future<void> flush() async {
+    if (saving || pending.isEmpty) return;
+    saving = true;
+    while (pending.isNotEmpty) {
+      final entry = pending.entries.first;
+      try {
+        await Api.save(Map<String, dynamic>.from(jsonDecode(entry.value)));
+        if (pending[entry.key] == entry.value) pending.remove(entry.key);
+      } catch (e) {
+        if (mounted) setState(() => saveStatus = '저장 실패 · 다시 시도');
+        saving = false;
+        return;
+      }
+    }
+    saving = false;
+    if (mounted) setState(() => saveStatus = '모든 변경 저장됨');
+  }
+
+  void addAsset(Map<String, dynamic> asset) {
+    if (diary == null) return;
+    if (placements.length >= 60) {
+      notify('한 페이지에 60개까지 붙일 수 있어요.');
+      return;
+    }
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    setState(() {
+      diary!['placements'] = [
+        ...placements,
+        {
+          'id': id,
+          'asset_id': asset['id'],
+          'x': .5,
+          'y': .48,
+          'size': .28,
+          'rotation': 0.0,
+        },
+      ];
+      selected = id;
+      tab = 2;
+      changed();
+    });
+  }
+
+  void patch(String field, double value) {
+    if (selection == null) return;
+    setState(() {
+      selection![field] = value;
+      changed();
+    });
+  }
+
+  void removeSelection() {
+    setState(() {
+      diary!['placements'] = placements
+          .where((p) => p['id'] != selected)
+          .toList();
+      selected = null;
+      changed();
+    });
+  }
+
+  Future<void> newDiary() async {
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final value = <String, dynamic>{
+      'id': id,
+      'title': '나의 새로운 하루',
+      'date': DateTime.now().toIso8601String().substring(0, 10),
+      'note': '',
+      'paper': '#fff9eb',
+      'placements': <Map<String, dynamic>>[],
+    };
+    try {
+      await Api.save(value);
+      if (mounted)
+        setState(() {
+          diaries.insert(0, value);
+          diaryId = id;
+          selected = null;
+          tab = 2;
+        });
+    } catch (e) {
+      notify(e.toString());
+    }
+  }
+
+  Future<void> editDiary() async {
+    if (diary == null) return;
+    final title = TextEditingController(text: diary!['title']),
+        note = TextEditingController(text: diary!['note']);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('오늘의 기록'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: title,
+                maxLength: 60,
+                decoration: const InputDecoration(labelText: '다이어리 제목'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: note,
+                maxLines: 5,
+                maxLength: 1000,
+                decoration: const InputDecoration(labelText: '남기고 싶은 이야기'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('기록하기'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && title.text.trim().isNotEmpty && mounted)
+      setState(() {
+        diary!['title'] = title.text.trim();
+        diary!['note'] = note.text;
+        changed();
+      });
+    // Dialog fields still exist during the dismissal animation.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    title.dispose();
+    note.dispose();
+  }
+
+  Future<void> uploadPhoto() async {
+    try {
+      final files = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (files == null || files.files.single.bytes == null) return;
+      final f = files.files.single;
+      final asset = Map<String, dynamic>.from(
+        await Api.upload('/api/photos', f.bytes!, f.name, {'name': '나의 사진'}),
+      );
+      if (!mounted) return;
+      setState(() => assets.insert(0, asset));
+      addAsset(asset);
+    } catch (e) {
+      notify(e.toString());
+    }
+  }
+
+  Future<void> createSticker() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => const StickerDialog(),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      jobs.insert(0, {
+        ...result,
+        'name': result['name'] ?? '새 스티커',
+        'progress': 0,
+        'message': '누끼를 준비하고 있어요',
+      });
+      tab = 1;
+    });
+    pollJobs();
+  }
+
+  Widget thumbnail(
+    Map<String, dynamic> asset, {
+    double? width,
+    double? height,
+  }) => Image.network(
+    Api.uri(asset['thumbnail']).toString(),
+    width: width,
+    height: height,
+    fit: BoxFit.contain,
+    errorBuilder: (_, e, s) =>
+        const Icon(Icons.broken_image_outlined, color: blue),
+    loadingBuilder: (c, w, p) => p == null
+        ? w
+        : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+  );
+  Widget pill(String text, {Color? color}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+    decoration: BoxDecoration(
+      color: color ?? const Color(0xffe7f1f6),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: ink,
+      ),
+    ),
+  );
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 1000;
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: sky,
+        surfaceTintColor: Colors.transparent,
+        toolbarHeight: 82,
+        title: Row(
+          children: [
+            Image.asset(
+              'assets/wordmark.png',
+              width: 140,
+              height: 60,
+              fit: BoxFit.contain,
+            ),
+            if (wide) ...[
+              const SizedBox(width: 20),
+              const Text(
+                '나의 작은 수집방',
+                style: TextStyle(fontSize: 13, color: Color(0xff77929f)),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          if (health != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 18),
+              child: pill('●  내 PC에 저장', color: const Color(0xffe3efe5)),
+            ),
+          if (wide)
+            Padding(
+              padding: const EdgeInsets.only(right: 28),
+              child: FilledButton.icon(
+                onPressed: createSticker,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('스티커 만들기'),
+              ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: wide
+          ? null
+          : NavigationBar(
+              backgroundColor: Colors.white,
+              selectedIndex: tab,
+              onDestinationSelected: (v) => setState(() => tab = v),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.cottage_outlined),
+                  label: '홈',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.inventory_2_outlined),
+                  label: '에셋',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.auto_stories_outlined),
+                  label: '다이어리',
+                ),
+              ],
+            ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null && assets.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('서버에 연결하지 못했어요'),
+                  const SizedBox(height: 12),
+                  Text(error!),
+                  TextButton(onPressed: load, child: const Text('다시 연결')),
+                ],
+              ),
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (wide) sidebar(),
+                Expanded(
+                  child: tab == 0
+                      ? home()
+                      : tab == 1
+                      ? library()
+                      : editor(wide),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget sidebar() => Container(
+    width: 210,
+    margin: const EdgeInsets.fromLTRB(20, 8, 16, 20),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .64),
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: line),
+    ),
+    child: Column(
+      children: [
+        for (final item in [
+          (Icons.cottage_outlined, '홈'),
+          (Icons.inventory_2_outlined, '에셋 보관함'),
+          (Icons.auto_stories_outlined, '나의 다이어리'),
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: ListTile(
+              selected:
+                  tab ==
+                  [
+                    (Icons.cottage_outlined, '홈'),
+                    (Icons.inventory_2_outlined, '에셋 보관함'),
+                    (Icons.auto_stories_outlined, '나의 다이어리'),
+                  ].indexOf(item),
+              selectedTileColor: const Color(0xffe1eff7),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              leading: Icon(item.$1, color: ink),
+              title: Text(item.$2, style: const TextStyle(fontSize: 13)),
+              onTap: () => setState(
+                () => tab = item.$2 == '홈'
+                    ? 0
+                    : item.$2 == '에셋 보관함'
+                    ? 1
+                    : 2,
+              ),
+            ),
+          ),
+        const SizedBox(height: 26),
+        const Divider(color: line),
+        const SizedBox(height: 10),
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'MY DIARIES',
+            style: TextStyle(fontSize: 10, letterSpacing: 2, color: blue),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: ListView(
+            children: [
+              for (final d in diaries)
+                ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 5),
+                  leading: const Icon(
+                    Icons.bookmark_border,
+                    size: 17,
+                    color: blue,
+                  ),
+                  title: Text(
+                    d['title'],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onTap: () => setState(() {
+                    diaryId = d['id'];
+                    selected = null;
+                    tab = 2;
+                  }),
+                ),
+              TextButton.icon(
+                onPressed: newDiary,
+                icon: const Icon(Icons.add, size: 15),
+                label: const Text('새 다이어리'),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: sky,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.favorite_border, color: blue, size: 20),
+              SizedBox(height: 8),
+              Text(
+                '좋아하는 것들을\n오래오래, 가까이.',
+                style: TextStyle(fontSize: 12, height: 1.8, color: ink),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+  Widget heading(
+    String overline,
+    String title,
+    String subtitle, {
+    Widget? action,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                overline,
+                style: const TextStyle(
+                  fontSize: 10,
+                  letterSpacing: 2,
+                  color: blue,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 9),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 27,
+                  fontWeight: FontWeight.w700,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xff78909c),
+                  height: 1.6,
+                ),
+              ),
+            ],
+          ),
+        ),
+        ?action,
+      ],
+    ),
+  );
+  Widget home() => ListView(
+    padding: const EdgeInsets.fromLTRB(24, 24, 28, 30),
+    children: [
+      heading(
+        'GOOD THINGS, GOOD MORNING',
+        '작은 취향이 모이는 곳',
+        '오늘 발견한 귀여움을, 나만의 스티커와 기록으로 남겨요.',
+      ),
+      Container(
+        height: 260,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: const Color(0xffdcecf5),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xffc7dfea)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  pill(
+                    'PHOTO → MY STICKER',
+                    color: Colors.white.withValues(alpha: .65),
+                  ),
+                  const SizedBox(height: 17),
+                  const Text(
+                    '사진 한 장이\n나만의 볼록 스티커로',
+                    style: TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                      color: ink,
+                    ),
+                  ),
+                  const SizedBox(height: 17),
+                  FilledButton.icon(
+                    onPressed: createSticker,
+                    icon: const Icon(Icons.auto_awesome, size: 17),
+                    label: const Text('첫 스티커 만들기'),
+                  ),
+                ],
+              ),
+            ),
+            if (MediaQuery.sizeOf(context).width > 600)
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 180,
+                      height: 180,
+                      decoration: const BoxDecoration(
+                        color: Color(0xffedf6fa),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    if (assets.isNotEmpty)
+                      Transform.rotate(
+                        angle: -.14,
+                        child: thumbnail(assets.last, width: 165, height: 195),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 28),
+      Row(
+        children: [
+          const Text(
+            '나의 다이어리',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: newDiary,
+            icon: const Icon(Icons.add, size: 17),
+            label: const Text('새로 만들기'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      Wrap(
+        spacing: 16,
+        runSpacing: 16,
+        children: [
+          for (final d in diaries)
+            InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => setState(() {
+                diaryId = d['id'];
+                tab = 2;
+                selected = null;
+              }),
+              child: Container(
+                width: 240,
+                height: 260,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xfffffbef),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xffe5ddc9)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.auto_stories_outlined,
+                          color: blue,
+                          size: 20,
+                        ),
+                        const Spacer(),
+                        Text(
+                          d['date'],
+                          style: const TextStyle(fontSize: 10, color: blue),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      d['title'],
+                      maxLines: 2,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          for (final p in (d['placements'] as List).take(2))
+                            if (assets.any((a) => a['id'] == p['asset_id']))
+                              Expanded(
+                                child: Transform.rotate(
+                                  angle:
+                                      (p['rotation'] as num).toDouble() *
+                                      math.pi /
+                                      180,
+                                  child: thumbnail(
+                                    assets.firstWhere(
+                                      (a) => a['id'] == p['asset_id'],
+                                    ),
+                                    height: 110,
+                                  ),
+                                ),
+                              ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${(d['placements'] as List).length}개의 작은 기억',
+                      style: const TextStyle(fontSize: 11, color: blue),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 28),
+      Row(
+        children: [
+          const Text(
+            '최근 모은 에셋',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () => setState(() => tab = 1),
+            child: const Text('모두 보기 →'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      SizedBox(
+        height: 145,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: assets.length.clamp(0, 8),
+          separatorBuilder: (_, i) => const SizedBox(width: 12),
+          itemBuilder: (_, i) =>
+              SizedBox(width: 130, child: assetCard(assets[i])),
+        ),
+      ),
+    ],
+  );
+  Widget assetCard(Map<String, dynamic> asset, {bool compact = false}) =>
+      InkWell(
+        onTap: () => showAsset(asset),
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: line),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            children: [
+              Expanded(child: thumbnail(asset)),
+              const SizedBox(height: 8),
+              Text(
+                asset['name'],
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (!compact)
+                Text(
+                  asset['kind'] == 'photo'
+                      ? '폴라로이드'
+                      : asset['engine'] == 'sam3d-sample'
+                      ? '기본 스티커'
+                      : '내가 만든 스티커',
+                  style: const TextStyle(fontSize: 9, color: blue),
+                ),
+            ],
+          ),
+        ),
+      );
+  Future<void> showAsset(Map<String, dynamic> asset) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(asset['name']),
+        content: SizedBox(width: 300, height: 280, child: thumbnail(asset)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('닫기'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              addAsset(asset);
+            },
+            icon: const Icon(Icons.add, size: 17),
+            label: const Text('다이어리에 붙이기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget library() {
+    final filtered = assets
+        .where((a) => a['name'].toString().contains(search))
+        .toList();
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 28, 30),
+      children: [
+        heading(
+          'MY LITTLE COLLECTION',
+          '에셋 보관함',
+          '사진 속 굿즈를 모아 두고, 다이어리에 자유롭게 붙여요.',
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                onChanged: (s) => setState(() => search = s),
+                decoration: const InputDecoration(
+                  hintText: '내 에셋 찾기',
+                  prefixIcon: Icon(Icons.search, size: 20),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: createSticker,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('모으기'),
+            ),
+          ],
+        ),
+        if (jobs.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          ...jobs
+              .where((j) => j['state'] != 'completed')
+              .take(4)
+              .map(
+                (j) => Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: line),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        j['name'] ?? '새 스티커',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        j['message'] ?? '',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: j['state'] == 'failed' ? Colors.red : blue,
+                        ),
+                      ),
+                      if (j['state'] != 'failed') ...[
+                        const SizedBox(height: 10),
+                        LinearProgressIndicator(
+                          value: ((j['progress'] ?? 0) as num) / 100,
+                          backgroundColor: sky,
+                          color: blue,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+        ],
+        const SizedBox(height: 22),
+        Text(
+          '${filtered.length}개의 소중한 취향',
+          style: const TextStyle(fontSize: 12, color: blue),
+        ),
+        const SizedBox(height: 12),
+        if (filtered.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(40),
+            child: Center(child: Text('아직 모은 에셋이 없어요. 사진으로 스티커를 만들어 보세요.')),
+          ),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 220,
+            childAspectRatio: .90,
+            crossAxisSpacing: 15,
+            mainAxisSpacing: 15,
+          ),
+          itemCount: filtered.length,
+          itemBuilder: (_, i) => assetCard(filtered[i]),
+        ),
+      ],
+    );
+  }
+
+  Widget editor(bool wide) {
+    if (diary == null)
+      return Center(
+        child: FilledButton(
+          onPressed: newDiary,
+          child: const Text('첫 다이어리 만들기'),
+        ),
+      );
+    final canvas = ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: DiaryScene(
+        key: sceneKey,
+        diary: diary!,
+        assets: assets,
+        tilt: tilt,
+        selected: selected,
+        onSelect: (id) {
+          if (selected != id) setState(() => selected = id);
+        },
+        onError: (message) => notify(message),
+        onChange: (list) => setState(() {
+          diary!['placements'] = list
+              .map((p) => Map<String, dynamic>.from(p))
+              .toList();
+          changed();
+        }),
+      ),
+    );
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 22, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      diary!['title'],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: flush,
+                      icon: Icon(
+                        saveStatus.contains('실패')
+                            ? Icons.cloud_off_outlined
+                            : Icons.cloud_done_outlined,
+                        size: 14,
+                      ),
+                      label: Text(
+                        saveStatus,
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '제목과 글 편집',
+                onPressed: editDiary,
+                icon: const Icon(Icons.edit_note),
+              ),
+              IconButton(
+                tooltip: '이미지로 저장',
+                onPressed: () => sceneKey.currentState?.exportImage(),
+                icon: const Icon(Icons.file_download_outlined),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 16, 18),
+                        child: canvas,
+                      ),
+                    ),
+                    SizedBox(width: 260, child: tools()),
+                  ],
+                )
+              : ListView(
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.sizeOf(context).width * 1.15,
+                      child: canvas,
+                    ),
+                    tools(),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget tools() => Container(
+    margin: const EdgeInsets.only(right: 18, bottom: 18),
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: line),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '다이어리 꾸미기',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 15),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: uploadPhoto,
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+              label: const Text('폴라로이드 사진 추가', style: TextStyle(fontSize: 12)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Text('입체로 보기', style: TextStyle(fontSize: 12)),
+              const Spacer(),
+              Switch(value: tilt, onChanged: (v) => setState(() => tilt = v)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '종이 색',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 9,
+            children: [
+              for (final color in [
+                '#fff9eb',
+                '#f5e9ed',
+                '#eaf4ef',
+                '#eef5ff',
+                '#ffffff',
+              ])
+                InkWell(
+                  onTap: () => setState(() {
+                    diary!['paper'] = color;
+                    changed();
+                  }),
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: Color(
+                        int.parse(color.replaceFirst('#', 'ff'), radix: 16),
+                      ),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: diary!['paper'] == color ? blue : line,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const Divider(height: 32, color: line),
+          if (selection != null) ...[
+            const Text(
+              '선택한 스티커',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '크기  ${((selection!['size'] as num) * 100).round()}%',
+              style: const TextStyle(fontSize: 11, color: blue),
+            ),
+            Slider(
+              min: .06,
+              max: .85,
+              value: (selection!['size'] as num).toDouble().clamp(.06, .85),
+              onChanged: (v) => patch('size', v),
+            ),
+            Text(
+              '회전  ${(selection!['rotation'] as num).round()}°',
+              style: const TextStyle(fontSize: 11, color: blue),
+            ),
+            Slider(
+              min: -180,
+              max: 180,
+              value: (selection!['rotation'] as num).toDouble().clamp(
+                -180,
+                180,
+              ),
+              onChanged: (v) => patch('rotation', v),
+            ),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      final p = selection!;
+                      diary!['placements'] = [
+                        ...placements.where((x) => x['id'] != selected),
+                        p,
+                      ];
+                      changed();
+                    });
+                  },
+                  icon: const Icon(Icons.flip_to_front, size: 15),
+                  label: const Text('맨 앞으로', style: TextStyle(fontSize: 11)),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: '선택한 항목 떼기',
+                  onPressed: removeSelection,
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: Color(0xffb26969),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(color: line),
+          ],
+          Row(
+            children: [
+              const Text(
+                '스티커 붙이기',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: '새 스티커 만들기',
+                onPressed: createSticker,
+                icon: const Icon(Icons.add_circle_outline, size: 20),
+              ),
+            ],
+          ),
+          const Text(
+            '원하는 스티커를 눌러 주세요',
+            style: TextStyle(fontSize: 10, color: blue),
+          ),
+          const SizedBox(height: 12),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: 1,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: assets.length,
+            itemBuilder: (_, i) => InkWell(
+              onTap: () => addAsset(assets[i]),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: sky,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Expanded(child: thumbnail(assets[i])),
+                    Text(
+                      assets[i]['name'],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 9),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class StickerDialog extends StatefulWidget {
+  const StickerDialog({super.key});
+  @override
+  State<StickerDialog> createState() => _StickerDialogState();
+}
+
+class _StickerDialogState extends State<StickerDialog> {
+  final name = TextEditingController();
+  Uint8List? bytes;
+  String filename = '', error = '';
+  bool busy = false, keep = false, marked = false;
+  double ratio = 1;
+  Rect box = const Rect.fromLTRB(.05, .05, .95, .95);
+  Offset? start;
+  @override
+  void dispose() {
+    name.dispose();
+    super.dispose();
+  }
+
+  Future<void> pick() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null) return;
+      final f = result.files.single;
+      if (f.size > 16 * 1024 * 1024) {
+        setState(() => error = '사진은 16MB 이하로 선택해 주세요.');
+        return;
+      }
+      final codec = await ui.instantiateImageCodec(f.bytes!);
+      final frame = await codec.getNextFrame();
+      final value = frame.image.width / frame.image.height;
+      frame.image.dispose();
+      codec.dispose();
+      if (mounted)
+        setState(() {
+          bytes = f.bytes;
+          filename = f.name;
+          ratio = value;
+          marked = false;
+          box = const Rect.fromLTRB(.05, .05, .95, .95);
+          error = '';
+          if (name.text.isEmpty) name.text = f.name.split('.').first;
+        });
+    } catch (e) {
+      if (mounted)
+        setState(() => error = '사진을 열 수 없어요. PNG, JPEG, WebP를 선택해 주세요.');
+    }
+  }
+
+  Future<void> submit() async {
+    if (bytes == null || name.text.trim().isEmpty) {
+      setState(() => error = '사진과 스티커 이름을 입력해 주세요.');
+      return;
+    }
+    if (!keep && (!marked || box.width < .02 || box.height < .02)) {
+      setState(() => error = '사진에서 굿즈를 감싸는 사각형을 먼저 그려 주세요.');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = '';
+    });
+    try {
+      final result = Map<String, dynamic>.from(
+        await Api.upload('/api/stickers', bytes!, filename, {
+          'name': name.text.trim(),
+          'engine': 'sam2-gaussian',
+          'background': keep ? 'keep' : 'auto',
+          'box': jsonEncode([box.left, box.top, box.right, box.bottom]),
+        }),
+      );
+      if (mounted)
+        Navigator.pop(context, {...result, 'name': name.text.trim()});
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          error = e.toString();
+          busy = false;
+        });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('볼록 스티커 만들기'),
+    content: SizedBox(
+      width: 470,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '좋아하는 굿즈가 잘 보이는 사진 한 장을 골라 주세요.',
+              style: TextStyle(fontSize: 12, color: blue),
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: name,
+              maxLength: 60,
+              enabled: !busy,
+              decoration: const InputDecoration(
+                labelText: '스티커 이름',
+                hintText: '예: 나의 토끼 키링',
+              ),
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: busy ? null : pick,
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: Text(bytes == null ? '사진 선택' : '다른 사진 선택'),
+              ),
+            ),
+            if (bytes != null) ...[
+              const SizedBox(height: 12),
+              const Text(
+                '사진 위에서 굿즈를 감싸도록 사각형을 그려 주세요.',
+                style: TextStyle(fontSize: 11, color: blue),
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: SizedBox(
+                  width: math.min(430, 300 * ratio),
+                  child: AspectRatio(
+                    aspectRatio: ratio,
+                    child: LayoutBuilder(
+                      builder: (_, constraints) {
+                        Offset normalized(Offset p) => Offset(
+                          (p.dx / constraints.maxWidth).clamp(0, 1),
+                          (p.dy / constraints.maxHeight).clamp(0, 1),
+                        );
+                        return GestureDetector(
+                          onPanStart: busy
+                              ? null
+                              : (d) {
+                                  start = normalized(d.localPosition);
+                                },
+                          onPanUpdate: busy
+                              ? null
+                              : (d) {
+                                  if (start == null) return;
+                                  final p = normalized(d.localPosition);
+                                  setState(() {
+                                    box = Rect.fromPoints(start!, p);
+                                    marked = true;
+                                  });
+                                },
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.memory(bytes!, fit: BoxFit.fill),
+                              Positioned(
+                                left: box.left * constraints.maxWidth,
+                                top: box.top * constraints.maxHeight,
+                                width: box.width * constraints.maxWidth,
+                                height: box.height * constraints.maxHeight,
+                                child: IgnorePointer(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0x1460bda0),
+                                      border: Border.all(
+                                        color: const Color(0xff62c2a4),
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              CheckboxListTile(
+                value: keep,
+                onChanged: busy ? null : (v) => setState(() => keep = v!),
+                title: const Text(
+                  '배경을 포함한 사진 전체로 만들기',
+                  style: TextStyle(fontSize: 11),
+                ),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              'SAM 2 누끼 → 가우시안 볼록 스티커\n사진과 결과는 내 PC에 저장돼요.',
+              style: TextStyle(fontSize: 11, color: blue, height: 1.8),
+            ),
+            if (error.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  error,
+                  style: const TextStyle(color: Colors.red, fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: busy ? null : () => Navigator.pop(context),
+        child: const Text('취소'),
+      ),
+      FilledButton(
+        onPressed: busy || bytes == null ? null : submit,
+        child: Text(busy ? '사진을 보내고 있어요…' : '만들어 저장'),
+      ),
+    ],
+  );
+}

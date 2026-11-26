@@ -1,0 +1,322 @@
+import hmac
+import json
+import logging
+import os
+import queue
+import shutil
+import sqlite3
+import threading
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, ConfigDict
+from PIL import Image
+
+from .gpu import Segmenter
+from .stickers import generate, normalized_image
+from .access import COOKIE, load_key, session, requires_access, authorized, connect_page
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA = Path(os.getenv('GOODMORNING_DATA', str(ROOT / 'data'))).resolve()
+ENGINE = ROOT / 'sticker-engine'
+DB = DATA / 'goodmorning.sqlite3'
+tasks = queue.Queue(maxsize=4)
+segmenter = Segmenter(DATA / 'models' / 'sam2')
+log = logging.getLogger('goodmorning')
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def connection():
+    con = sqlite3.connect(DB, timeout=20)
+    con.row_factory = sqlite3.Row
+    con.execute('PRAGMA foreign_keys=ON')
+    return con
+
+
+
+
+def initialize():
+    (DATA / 'assets').mkdir(parents=True, exist_ok=True)
+    (DATA / 'models').mkdir(exist_ok=True)
+    app.state.access_key = load_key(DATA)
+    with connection() as con:
+        con.executescript('''
+          PRAGMA journal_mode=WAL;
+          CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
+              engine TEXT NOT NULL, created TEXT NOT NULL, metadata TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, name TEXT NOT NULL, state TEXT NOT NULL,
+              progress INTEGER NOT NULL, message TEXT NOT NULL, asset_id TEXT, created TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS diaries(id TEXT PRIMARY KEY, body TEXT NOT NULL, updated TEXT NOT NULL);
+        ''')
+        con.execute("UPDATE jobs SET state='failed', message='서버가 재시작되어 중단됐어요. 사진을 다시 올려 주세요.' WHERE state IN ('queued','running')")
+        for ident, title in [('pochita', '포치타'), ('2026_11_24_08_15', '디무'), ('2026_11_24_08_16', '토끼 인형')]:
+            src = ENGINE / 'assets' / ident
+            if not (src / 'sticker.glb').exists():
+                continue
+            dest = DATA / 'assets' / ident
+            dest.mkdir(exist_ok=True)
+            for filename in ('sticker.glb', 'sticker.png', 'sticker.json'):
+                if not (dest / filename).exists() and (src / filename).exists():
+                    shutil.copy2(src / filename, dest / filename)
+            con.execute('INSERT OR IGNORE INTO assets VALUES(?,?,?,?,?,?)',
+                        (ident, title, 'sticker', 'sam3d-sample', now(), json.dumps({'sample': True})))
+        if con.execute('SELECT count(*) FROM diaries').fetchone()[0] == 0:
+            diary = {'id': 'my-first-diary', 'title': '좋아하는 것들로 가득', 'note': '작고 귀여운 순간들을 차곡차곡 모아요.',
+                     'date': datetime.now().strftime('%Y-%m-%d'), 'paper': '#fff9eb', 'placements': [
+                         {'id': 'starter-1', 'asset_id': 'pochita', 'x': .28, 'y': .40, 'size': .32, 'rotation': -12},
+                         {'id': 'starter-2', 'asset_id': '2026_11_24_08_16', 'x': .70, 'y': .64, 'size': .29, 'rotation': 11}]}
+            con.execute('INSERT INTO diaries VALUES(?,?,?)', (diary['id'], json.dumps(diary, ensure_ascii=False), now()))
+
+
+def asset_dict(row):
+    result = dict(row)
+    result['metadata'] = json.loads(result['metadata'])
+    result['thumbnail'] = f"/files/{result['id']}/sticker.png"
+    result['model'] = f"/files/{result['id']}/sticker.glb" if result['kind'] == 'sticker' else None
+    return result
+
+
+def update_job(ident, state, progress, message, asset=None):
+    with connection() as con:
+        con.execute('UPDATE jobs SET state=?, progress=?, message=?, asset_id=? WHERE id=?',
+                    (state, progress, message, asset, ident))
+
+
+def worker():
+    while True:
+        task = tasks.get()
+        if task is None:
+            tasks.task_done()
+            return
+        ident, options = task
+        path = DATA / 'assets' / ident
+        try:
+            def progress(number, message):
+                update_job(ident, 'running', number, message)
+            info = generate(path / 'source.png', path, segmenter, options, progress)
+            with connection() as con:
+                con.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)',
+                            (ident, options['name'], 'sticker', options['engine'], now(), json.dumps(info)))
+            update_job(ident, 'completed', 100, '에셋함에 저장했어요!', ident)
+        except Exception as error:
+            log.exception('Sticker generation failed for %s', ident)
+            message = str(error) if isinstance(error, (ValueError, RuntimeError)) else '변환 중 오류가 발생했어요. 다른 사진으로 다시 시도해 주세요.'
+            update_job(ident, 'failed', 0, message)
+        finally:
+            tasks.task_done()
+
+
+@asynccontextmanager
+async def lifespan(app):
+    initialize()
+    thread = threading.Thread(target=worker, daemon=True, name='sticker-worker')
+    thread.start()
+    yield
+    try:
+        tasks.put_nowait(None)
+    except queue.Full:
+        pass
+
+
+app = FastAPI(title='굿모닝 · local studio', lifespan=lifespan)
+
+
+@app.middleware('http')
+async def same_origin(request: Request, call_next):
+    origin = request.headers.get('origin')
+    if request.method not in ('GET', 'HEAD', 'OPTIONS') and origin:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in ('http', 'https') or parsed.netloc != request.headers.get('host'):
+            return JSONResponse({'detail': '다른 사이트에서 보낸 요청은 허용되지 않습니다.'}, 403)
+    if request.url.path not in ('/connect','/auth/login') and requires_access(request) and not authorized(request,app.state.access_key):
+        if request.url.path.startswith(('/api/','/files/')):
+            return JSONResponse({'detail':'접속 링크로 먼저 로그인해 주세요.'},401)
+        return RedirectResponse('/connect',status_code=303)
+    response=await call_next(request)
+    response.headers['Referrer-Policy']='no-referrer'
+    response.headers['X-Content-Type-Options']='nosniff'
+    response.headers['X-Frame-Options']='SAMEORIGIN'
+    return response
+
+
+@app.get('/connect',include_in_schema=False)
+def connect():
+    return connect_page()
+
+
+@app.post('/auth/login',include_in_schema=False)
+async def login(request: Request):
+    try:
+        if int(request.headers.get('content-length','0'))>1024:
+            raise ValueError()
+        body=await request.json()
+        value=body.get('key','')
+        if not isinstance(value,str) or not hmac.compare_digest(value,app.state.access_key):
+            raise ValueError()
+    except (ValueError,AttributeError):
+        raise HTTPException(403,'접근 키가 올바르지 않습니다.')
+    response=JSONResponse({'ok':True})
+    response.set_cookie(COOKIE,session(app.state.access_key),httponly=True,samesite='strict',
+                        secure=request.url.scheme=='https' or request.headers.get('x-forwarded-proto')=='https',max_age=604800)
+    return response
+
+
+@app.get('/api/health')
+def health():
+    gpu = segmenter.status()
+    return {'status': 'ok', 'storage': 'local', 'gpu': gpu, 'engine': 'sam2-gaussian',
+            'photo_ready': gpu['model_ready'], 'queue_size': tasks.qsize(),
+            'pipeline': 'SAM 2.1 → single-photo Gaussian relief → glossy GLB'}
+
+
+@app.get('/api/assets')
+def assets():
+    with connection() as con:
+        return [asset_dict(row) for row in con.execute('SELECT * FROM assets ORDER BY created DESC')]
+
+
+async def uploaded_image(photo):
+    content = await photo.read(16 * 1024 * 1024 + 1)
+    await photo.close()
+    if len(content) > 16 * 1024 * 1024:
+        raise HTTPException(413, '사진은 16MB 이하로 올려 주세요.')
+    try:
+        return normalized_image(content)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post('/api/stickers', status_code=202)
+async def create_sticker(photo: UploadFile = File(), name: str = Form(min_length=1, max_length=60),
+                         engine: Literal['sam2-gaussian'] = Form('sam2-gaussian'),
+                         background: Literal['auto', 'keep'] = Form('auto'), box: str = Form('[0.05,0.05,0.95,0.95]')):
+    if not name.strip():
+        raise HTTPException(422, '스티커 이름을 입력해 주세요.')
+    try:
+        bounds = json.loads(box)
+        if len(bounds) != 4 or not all(isinstance(x, (int, float)) and 0 <= x <= 1 for x in bounds) or bounds[2]-bounds[0] < .02 or bounds[3]-bounds[1] < .02:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(422, '굿즈를 감싸는 사각형을 선택해 주세요.')
+    if tasks.full():
+        raise HTTPException(429, '만드는 중인 스티커가 많아요. 잠시 후 다시 시도해 주세요.')
+    image = await uploaded_image(photo)
+    ident = uuid.uuid4().hex
+    dest = DATA / 'assets' / ident
+    dest.mkdir()
+    image.save(dest / 'source.png')
+    with connection() as con:
+        con.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?)', (ident, name.strip(), 'queued', 0, '차례를 기다리고 있어요', None, now()))
+    try:
+        tasks.put_nowait((ident, {'name': name.strip(), 'engine': engine, 'background': background, 'box': bounds}))
+    except queue.Full:
+        update_job(ident, 'failed', 0, '대기열이 가득 찼어요. 다시 시도해 주세요.')
+        raise HTTPException(429, '대기열이 가득 찼어요.')
+    return {'id': ident, 'state': 'queued'}
+
+
+@app.post('/api/photos', status_code=201)
+async def add_photo(photo: UploadFile = File(), name: str = Form('나의 사진', max_length=60)):
+    image = await uploaded_image(photo)
+    ident = uuid.uuid4().hex
+    dest = DATA / 'assets' / ident
+    dest.mkdir()
+    image.save(dest / 'sticker.png')
+    with connection() as con:
+        con.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)', (ident, name, 'photo', 'photo', now(), '{}'))
+        return asset_dict(con.execute('SELECT * FROM assets WHERE id=?', (ident,)).fetchone())
+
+
+@app.get('/api/jobs')
+def jobs():
+    with connection() as con:
+        return [dict(row) for row in con.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30')]
+
+
+@app.get('/api/jobs/{ident}')
+def job(ident: str):
+    with connection() as con:
+        row = con.execute('SELECT * FROM jobs WHERE id=?', (ident,)).fetchone()
+    if row is None:
+        raise HTTPException(404, '작업을 찾지 못했어요.')
+    return dict(row)
+
+
+class Placement(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=80)
+    asset_id: str = Field(min_length=1, max_length=80)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    size: float = Field(ge=.06, le=.85)
+    rotation: float = Field(ge=-180, le=180)
+
+
+class Diary(BaseModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_-]+$')
+    title: str = Field(min_length=1, max_length=60)
+    note: str = Field(max_length=1000, default='')
+    date: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    paper: str = Field(pattern=r'^#[0-9a-fA-F]{6}$', default='#fff9eb')
+    placements: list[Placement] = Field(max_length=60, default_factory=list)
+
+
+@app.get('/api/diaries')
+def diaries():
+    with connection() as con:
+        return [json.loads(row['body']) for row in con.execute('SELECT body FROM diaries ORDER BY updated DESC')]
+
+
+@app.put('/api/diaries/{ident}')
+def save_diary(ident: str, diary: Diary):
+    if ident != diary.id:
+        raise HTTPException(400, '다이어리 ID가 일치하지 않아요.')
+    ids = [p.id for p in diary.placements]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(422, '스티커 배치 ID는 서로 달라야 합니다.')
+    with connection() as con:
+        known = {row['id'] for row in con.execute('SELECT id FROM assets')}
+        if any(p.asset_id not in known for p in diary.placements):
+            raise HTTPException(422, '저장되지 않은 에셋은 붙일 수 없어요.')
+        con.execute('INSERT INTO diaries VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,updated=excluded.updated',
+                    (ident, diary.model_dump_json(), now()))
+    return diary
+
+
+@app.get('/files/{ident}/{filename}')
+def file(ident: str, filename: str):
+    if filename not in ('sticker.glb', 'sticker.png', 'sticker.json', 'sticker.ply', 'sticker.splat') or not ident.replace('_', '').replace('-', '').isalnum():
+        raise HTTPException(404)
+    path = DATA / 'assets' / ident / filename
+    if not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, media_type='model/gltf-binary' if filename.endswith('.glb') else None)
+
+
+app.mount('/scene', StaticFiles(directory=ROOT / 'server' / 'scene', html=True), name='scene')
+
+
+@app.get('/{path:path}')
+def frontend(path: str):
+    root = (ROOT / 'app' / 'build' / 'web').resolve()
+    if path.startswith(('api/', 'files/')):
+        raise HTTPException(404)
+    target = (root / path).resolve()
+    if not target.is_relative_to(root):
+        raise HTTPException(404)
+    if target.is_file():
+        return FileResponse(target)
+    if not path or '.' not in Path(path).name:
+        if (root / 'index.html').exists():
+            return FileResponse(root / 'index.html', headers={'Cache-Control': 'no-cache'})
+    raise HTTPException(404, 'Flutter 웹 앱을 먼저 빌드해 주세요.')

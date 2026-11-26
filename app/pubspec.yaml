@@ -1,0 +1,21 @@
+name: goodmorning
+description: 굿모닝 사진 스티커와 입체 다이어리
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.5.0
+  file_picker: ^10.3.0
+  web: ^1.1.1
+  material_ui: ^1.11.1
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/wordmark.png

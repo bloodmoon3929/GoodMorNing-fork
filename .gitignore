@@ -1,0 +1,13 @@
+tools/
+.venv/
+data/
+logs/
+__pycache__/
+.pytest_cache/
+app/.dart_tool/
+app/build/
+app/.flutter-plugins-dependencies
+server/*.local.json
+*.key
+*.log
+access-link.txt

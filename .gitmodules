@@ -1,0 +1,6 @@
+[submodule "prototype"]
+	path = prototype
+	url = https://github.com/mokma18/goodmorning-prototype-demo.git
+[submodule "sticker-engine"]
+	path = sticker-engine
+	url = https://github.com/bloodmoon3929/goodmorning-3d.git
