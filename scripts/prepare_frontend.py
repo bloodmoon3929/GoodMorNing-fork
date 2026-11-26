@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import urllib.request
+from adapt_diary import adapt
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / 'app' / 'web'
@@ -45,12 +46,15 @@ document.addEventListener('click',event=>{
   if(!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   const section=link.dataset.section||'home';
   if(section==='magnets' && home && !draft) return; // Keep the source safe-opening animation on home only.
+  if(section==='magnets' && demo && !visitingDiary) return; // Original diary/page links remain inside the notebook.
   if(section==='browse' && !home) return; // Return from a sample diary to the original browse grid inside the frame.
   event.preventDefault();event.stopImmediatePropagation();
   parent.postMessage({source:'goodmorning-reference',tab:section==='assets'?1:section==='magnets'?2:section==='browse'?3:0},location.origin);
 },true);
 </script>'''
 html=html.replace('</body>',bridge+'</body>')
+html=adapt(html)
+shutil.copy2(ROOT/'server/reference/diary_bridge.js',REF/'diary_bridge.js')
 (REF/'index.html').write_text(html,encoding='utf-8')
 (REF/'source.css').write_text(css,encoding='utf-8')
 nav=nav.replace('data-wordmark',f'src="{wordmark}"')

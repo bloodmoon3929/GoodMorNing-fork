@@ -22,6 +22,7 @@ from PIL import Image
 
 from .gpu import Segmenter
 from .stickers import generate, normalized_image
+from . import notebook, asset_trash
 from .access import COOKIE, load_key, session, requires_access, authorized, connect_page, guest_token, guest_owner
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,6 +53,8 @@ def initialize():
     (DATA / 'models').mkdir(exist_ok=True)
     app.state.access_key = load_key(DATA)
     with connection() as con:
+        notebook.initialize(con, DATA)
+        asset_trash.initialize(con)
         con.executescript('''
           PRAGMA journal_mode=WAL;
           CREATE TABLE IF NOT EXISTS ownership(kind TEXT NOT NULL, ident TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY(kind, ident));
@@ -213,9 +216,9 @@ def health():
 
 
 @app.get('/api/assets')
-def assets(request: Request):
+def assets(request: Request, include_deleted: bool = False):
     with connection() as con:
-        return [asset_dict(row) for row in con.execute('SELECT * FROM assets ORDER BY created DESC') if accessible(con, 'asset', row['id'], request.state.owner)]
+        return [asset_dict(row) for row in con.execute('SELECT * FROM assets ORDER BY created DESC') if accessible(con, 'asset', row['id'], request.state.owner) and (include_deleted or not asset_trash.hidden(con,request.state.owner,row['id']))]
 
 
 async def uploaded_image(photo):
@@ -355,6 +358,9 @@ def file(ident: str, filename: str, request: Request):
         raise HTTPException(404)
     return FileResponse(path, media_type='model/gltf-binary' if filename.endswith('.glb') else None)
 
+
+notebook.register(app, DATA, connection, accessible, normalized_image, now)
+asset_trash.register(app, connection, accessible, asset_dict, now, SAMPLES)
 
 app.mount('/scene', StaticFiles(directory=ROOT / 'server' / 'scene', html=True), name='scene')
 

@@ -6,7 +6,12 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent / 'app/build/web'
 main = (root / 'main.dart.js').read_bytes()
-revision = hashlib.sha256(main).hexdigest()[:16]
+release = hashlib.sha256(main)
+for name in ('reference/index.html', 'reference/diary_bridge.js', 'scene/scene.js'):
+    source = root / name
+    if source.exists():
+        release.update(source.read_bytes())
+revision = release.hexdigest()[:16]
 main_name = f'main.{revision}.dart.js'
 (root / main_name).write_bytes(main)
 bootstrap = (root / 'flutter_bootstrap.js').read_text(encoding='utf-8')
@@ -18,4 +23,10 @@ index = index.replace("'flutter_bootstrap.js'", repr(bootstrap_name))
 index = index.replace('<html lang="ko">', f'<html lang="ko" data-build="{revision}">')
 (root / 'index.html').write_text(index, encoding='utf-8')
 (root / 'build-info.json').write_text(json.dumps({'revision': revision, 'commit': os.getenv('GITHUB_SHA', 'local')}), encoding='utf-8')
+bridge = root / 'reference/diary_bridge.js'
+if bridge.exists():
+    bridge_name = f'diary_bridge.{hashlib.sha256(bridge.read_bytes()).hexdigest()[:16]}.js'
+    (bridge.parent / bridge_name).write_bytes(bridge.read_bytes())
+    reference = bridge.parent / 'index.html'
+    reference.write_text(reference.read_text(encoding='utf-8').replace('./diary_bridge.js', './'+bridge_name), encoding='utf-8')
 print(f'Published immutable JavaScript bundles: {revision}')

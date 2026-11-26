@@ -94,7 +94,16 @@ class Api {
     _explicitConnection = true;
   }
 
-  static Uri staticUri(String path) => Uri.base.resolve(path);
+  static Uri staticUri(String path) {
+    final uri = Uri.base.resolve(path);
+    final revision = web.document.documentElement?.getAttribute('data-build');
+    return revision == null
+        ? uri
+        : uri.replace(
+            queryParameters: {...uri.queryParameters, '_build': revision},
+          );
+  }
+
   static Future<Uint8List> image(String path) =>
       _images.putIfAbsent(path, () async {
         final response = await http
@@ -139,6 +148,18 @@ class Api {
           uri('/api/diaries/${diary['id']}'),
           headers: {...headers, 'Content-Type': 'application/json'},
           body: jsonEncode(diary),
+        )
+        .timeout(const Duration(seconds: 20)),
+  );
+  static Future<dynamic> post(
+    String path, [
+    Map<String, dynamic> body = const {},
+  ]) async => check(
+    await http
+        .post(
+          uri(path),
+          headers: {...headers, 'Content-Type': 'application/json'},
+          body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 20)),
   );

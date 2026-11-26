@@ -4,11 +4,15 @@
 
 프론트는 **[GitHub Pages](https://niraaah.github.io/GoodMorNing/)**, GPU API와 데이터 저장소는 **사용자 Windows PC**에서 실행합니다. GitHub Actions는 main에 push할 때 Flutter 웹을 빌드해서 Pages에 배포하며, GPU 작업을 실행하는 서버는 아닙니다.
 
-원본 [프로토타입](https://github.com/mokma18/goodmorning-prototype-demo)의 `?home` 소스를 기준으로 금고, 토끼, 로고, 글꼴, 색상, 입체 효과, 하단 메뉴를 재사용합니다. **Flutter 앱의 HtmlElementView 안에 원본 HTML/CSS 홈을 넣은 혼합 구조**이며, 모든 UI를 네이티브 Flutter 위젯으로 다시 그린 구현은 아닙니다. 에셋함과 다이어리 도구는 Flutter이고, 입체 다이어리는 Three.js입니다. 에셋함은 원본처럼 중앙의 좁은 화면과 3열 그리드를 사용합니다. 다이어리 편집 화면은 기존 기능을 유지하며 원본의 전체 다이어리 연출과 동일하지 않습니다.
+원본 [프로토타입](https://github.com/mokma18/goodmorning-prototype-demo)의 홈·다이어리·훔쳐보기 소스를 재사용합니다. **Flutter 앱의 HtmlElementView 안에 원본 HTML/CSS/JS 화면을 넣은 혼합 구조**이며, 모든 UI를 네이티브 Flutter 위젯으로 다시 그린 구현은 아닙니다. 다이어리는 원본의 투명 바인더, 표지·링 여닫기, 사진·마스킹테이프, 입체 스티커, 페이지 넘김, 편집/취소/게시 UI를 사용합니다. 에셋함과 사진의 SAM 2 선택 창은 Flutter입니다.
 
 스티커의 테두리·볼록 메시·유광 GLB 생성 함수는 [goodmorning-3d](https://github.com/bloodmoon3929/goodmorning-3d)의 `pipeline/sticker.py`에서 재사용합니다. 홈의 기존 샘플 배치는 원본 방식대로 브라우저에 보관하고, 생성한 에셋과 앱 다이어리는 PC의 DB에 저장합니다.
 
 ## 구현된 기능
+
+- 에셋 상세 → **삭제** → 에셋 이름을 정확히 직접 입력 → **확인하고 삭제**. 서버도 이름과 소유권을 다시 확인합니다. 삭제한 에셋은 목록에서 숨기고 **내 에셋 → 휴지통 → 복구**로 되돌릴 수 있습니다. 파일을 영구 삭제하거나 자동 정리하지 않으므로 기존 다이어리에 붙인 스티커는 유지됩니다. 공용 기본 샘플은 삭제하지 않습니다.
+- 휴대폰 자이로 사용 시 **다이어리는 고정하고 스티커 조명·반사만 움직입니다.** 센서 값을 받을 수 없는 브라우저에서만 **수동 기울이기**를 제공합니다. 수동 모드에서만 드래그/방향키로 판을 기울이며, 편집 중에는 끕니다. 센서 값이 들어오면 수동 모드는 해제됩니다.
+- iOS 등 센서 권한이 필요한 브라우저에서는 **자이로 켜기**를 눌러 허용해야 합니다. 권한 거부는 센서 없음으로 처리하지 않으며 수동 모드도 활성화하지 않습니다. HTTPS와 센서 사용 가능한 브라우저가 필요합니다. 센서 API가 없거나 권한 확인 후 6초 동안 유효한 값이 없으면 수동 모드를 제공합니다. 브라우저에서 하드웨어의 물리적 유무까지 확정하는 기능은 아닙니다. 카메라·얼굴 거리 확대는 사용하지 않습니다. [센서 권한 안내](https://developer.mozilla.org/en-US/docs/Web/API/Device_orientation_events)
 
 - 원본 **훔쳐보기** 탭: 포치타·디무 다이어리 카드, 원본 샘플 다이어리 열람과 목록 복귀. [직접 열기](https://niraaah.github.io/GoodMorNing/?browse). GPU 연결 없이 열람 가능하며, 실제 이용자의 비공개 다이어리를 공개하는 기능은 아닙니다.
 - 사진 업로드 후 사각형으로 굿즈 영역 선택
@@ -17,7 +21,8 @@
 - 누끼 이미지로 가우시안 입자와 볼록한 표면을 만들고 `.ply`, `.splat`, `.glb`, PNG 저장
 - 생성 작업의 대기·진행률·실패 표시, 완료된 스티커를 에셋 보관함에 추가
 - 다이어리에 스티커와 폴라로이드 추가, 끌어서 이동, 크기·회전·순서 조절, 선택 항목 제거
-- 다이어리 제목·메모·종이 색 편집, 입체 기울이기, PNG 내보내기
+- 다이어리 탭은 원본 바인더 편집기를 사용합니다. 사진 메모·테이프·사진 추가/교체, 스티커 이동·크기·회전, 새 장 추가, 표지와 링 조작을 원본 UI에서 제공합니다. 이전 별도 편집기의 제목/메모/종이 색/PNG 내보내기 도구는 현재 화면에 노출하지 않습니다.
+- **편집 → 게시**로 사진·테이프·에셋 배치를 PC의 `notebook_pages`에 저장합니다. 사진과 가져온 GLB는 별도 첨부 파일로 저장하며, GPU에서 만든 에셋은 기존 파일을 참조합니다. 저장 실패 시 편집 내용을 유지합니다. 원본의 페이지당 에셋 6개 제한을 유지하며 새 장에 추가할 수 있습니다.
 - SQLite에 에셋·생성 작업·다이어리 저장. 새로고침 후 다시 불러오기
 - GitHub Pages 정적 프론트 + 접근 키로 보호된 로컬 GPU API. 같은 PC에서 앱/API를 함께 제공하는 방식도 유지
 
@@ -63,6 +68,7 @@ GoodMorNing/
 │  ├─ lib/
 │  │  ├─ main.dart             홈·에셋함·다이어리·사진 선택 화면
 │  │  ├─ api.dart              API 요청과 업로드
+│  │  ├─ asset_actions.dart    이름 입력 삭제 확인·휴지통·복구
 │  │  ├─ diary_scene.dart      Flutter ↔ Three.js 메시지 연결
 │  │  ├─ reference_view.dart   원본 홈·훔쳐보기·메뉴 ↔ Flutter 탭 연결
 │  │  ├─ photo_selection.dart 사진 영역 선택 전용 터치 처리
@@ -79,6 +85,10 @@ GoodMorNing/
 │  ├─ stickers.py             누끼 → 볼록 스티커 생성
 │  ├─ gaussian.py             Gaussian 표면·PLY/SPLAT 내보내기
 │  ├─ access.py               외부 접속 키·세션 쿠키
+│  ├─ notebook.py             원본 다이어리 페이지·첨부 파일의 소유자별 저장
+│  ├─ asset_trash.py          이름 확인 삭제·소유자별 휴지통·복구
+│  ├─ reference/diary_bridge.js  원본 편집기 ↔ GPU 에셋·페이지 저장 연결
+│  ├─ reference/diary_motion.js  고정 다이어리의 자이로 반사·수동 대체 모드
 │  ├─ vendor/sticker_geometry.py  원본 스티커 함수 재사용
 │  ├─ scene/                  Three.js 입체 다이어리와 로컬 라이브러리
 │  ├─ test_app.py             생성·저장·입력·접근 제어 테스트
@@ -89,6 +99,7 @@ GoodMorNing/
 │  ├─ build.ps1               Flutter 웹 빌드
 │  ├─ finalize_web.py         배포별 JS 주소 분리·이전 실행 파일 캐시 방지
 │  ├─ prepare_frontend.py      원본 홈·메뉴·정적 3D 파일 준비
+│  ├─ adapt_diary.py           원본 다이어리의 저장 함수·GPU 에셋 연결 변경
 │  ├─ write_connection.py      공개 GPU 주소를 웹 런타임 설정에 기록
 │  ├─ publish_connection.ps1   터널 주소 변경 → Pages 자동 재배포
 │  ├─ start.ps1               앱/API 백그라운드 실행
@@ -101,6 +112,7 @@ GoodMorNing/
 ├─ data/                      로컬 전용, Git 제외
 │  ├─ goodmorning.sqlite3      에셋·작업·다이어리 DB
 │  ├─ assets/<id>/             원본 사진, 스티커, 메타데이터
+│  ├─ notebook-files/         다이어리 첨부 사진·GLB (소유자별 접근)
 │  ├─ models/sam2/             SAM 2 ONNX 모델 약 155MB
 │  ├─ access.key              외부 접속 키
 │  └─ verification/           로컬 검증 기록
@@ -168,7 +180,13 @@ cd GoodMorNing
 | 경로 | 역할 |
 | --- | --- |
 | `GET /api/health` | 서버·SAM 2 모델·GPU provider 상태 |
-| `GET /api/assets` | 에셋 목록 |
+| `GET /api/assets` | 휴지통을 제외한 에셋 목록 |
+| `POST /api/assets/{id}/trash` | 정확한 `name` 확인 후 휴지통으로 이동 |
+| `GET /api/trash` | 내 휴지통 |
+| `POST /api/trash/{id}/restore` | 에셋 복구 |
+| `GET, PUT /api/notebook/pages/{key}` | 원본 UI의 다이어리 페이지 읽기·게시 |
+| `GET /api/notebook/pages` | 저장한 페이지 목록 |
+| `POST /api/notebook/files` | 다이어리 사진·GLB 첨부 |
 | `POST /api/stickers` | multipart `photo`, `name`, `box` → 비동기 스티커 생성 |
 | `GET /api/jobs/{id}` | 생성 상태와 진행률 |
 | `POST /api/photos` | 폴라로이드 사진 저장 |

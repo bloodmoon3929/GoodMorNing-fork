@@ -9,6 +9,7 @@ import 'diary_scene.dart';
 import 'reference_view.dart';
 import 'photo_selection.dart';
 import 'studio_dialog.dart';
+import 'asset_actions.dart';
 
 const ink = Color(0xff294653),
     blue = Color(0xff659bb7),
@@ -72,10 +73,14 @@ class Studio extends StatefulWidget {
 class _StudioState extends State<Studio> {
   List<Map<String, dynamic>> assets = [], diaries = [], jobs = [];
   Map<String, dynamic>? health;
-  String? error, diaryId, selected;
-  int tab = Uri.base.queryParameters.containsKey('browse') ? 3 : 0;
+  String? error, diaryId, selected, pendingNotebookAsset;
+  int tab = Uri.base.queryParameters.containsKey('browse')
+      ? 3
+      : Uri.base.queryParameters.containsKey('magnets')
+      ? 2
+      : 0;
   bool loading = true, tilt = false, saving = false, polling = false;
-  bool stickerDialogOpen = false;
+  bool stickerDialogOpen = false, trashDialogOpen = false;
   String search = '', saveStatus = '저장됨';
   Timer? poll, saveTimer;
   final pending = <String, String>{};
@@ -208,27 +213,9 @@ class _StudioState extends State<Studio> {
   }
 
   void addAsset(Map<String, dynamic> asset) {
-    if (diary == null) return;
-    if (placements.length >= 60) {
-      notify('한 페이지에 60개까지 붙일 수 있어요.');
-      return;
-    }
-    final id = DateTime.now().microsecondsSinceEpoch.toString();
     setState(() {
-      diary!['placements'] = [
-        ...placements,
-        {
-          'id': id,
-          'asset_id': asset['id'],
-          'x': .5,
-          'y': .48,
-          'size': .28,
-          'rotation': 0.0,
-        },
-      ];
-      selected = id;
+      pendingNotebookAsset = asset['id'] as String;
       tab = 2;
-      changed();
     });
   }
 
@@ -537,9 +524,21 @@ class _StudioState extends State<Studio> {
 
   @override
   Widget build(BuildContext context) {
-    if (tab == 0 || tab == 3) {
+    if (tab == 0 || tab == 2 || tab == 3) {
       return Scaffold(
-        body: ReferenceView(tab: tab, onNavigate: navigate),
+        body: ReferenceView(
+          tab: tab,
+          onNavigate: navigate,
+          connectionReady: health != null,
+          connectionError: error,
+          diaryId: diaryId,
+          pendingAsset: pendingNotebookAsset,
+          onAssetAdded: (id) {
+            if (pendingNotebookAsset == id)
+              setState(() => pendingNotebookAsset = null);
+          },
+          onError: notify,
+        ),
       );
     }
     return Scaffold(
@@ -727,12 +726,21 @@ class _StudioState extends State<Studio> {
         ),
       );
   Future<void> showAsset(Map<String, dynamic> asset) async {
-    await showStudioDialog(
+    final action = await showStudioDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(asset['name']),
         content: SizedBox(width: 300, height: 280, child: thumbnail(asset)),
         actions: [
+          if (asset['engine'] != 'sam3d-sample')
+            TextButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'delete'),
+              icon: const Icon(Icons.delete_outline, color: Color(0xffa9453c)),
+              label: const Text(
+                '삭제',
+                style: TextStyle(color: Color(0xffa9453c)),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('닫기'),
@@ -748,6 +756,32 @@ class _StudioState extends State<Studio> {
         ],
       ),
     );
+    if (action == 'delete' &&
+        mounted &&
+        await confirmAssetDeletion(context, asset)) {
+      if (!mounted) return;
+      setState(() => assets.removeWhere((a) => a['id'] == asset['id']));
+      notify('휴지통으로 옮겼어요. 잘못 삭제했다면 복구할 수 있어요.');
+    }
+  }
+
+  Future<void> openTrash() async {
+    if (trashDialogOpen) return;
+    trashDialogOpen = true;
+    try {
+      await showStudioDialog(
+        context: context,
+        builder: (_) => const AssetTrashDialog(),
+      );
+      final fresh = List<Map<String, dynamic>>.from(
+        await Api.get('/api/assets'),
+      );
+      if (mounted) setState(() => assets = fresh);
+    } catch (e) {
+      notify(e.toString());
+    } finally {
+      trashDialogOpen = false;
+    }
   }
 
   Widget library() {
@@ -757,11 +791,21 @@ class _StudioState extends State<Studio> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 16),
-          child: Text(
-            '내 에셋',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            children: [
+              const Text(
+                '내 에셋',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: openTrash,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('휴지통'),
+              ),
+            ],
           ),
         ),
         Row(
