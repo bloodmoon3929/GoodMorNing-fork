@@ -23,12 +23,14 @@
 
 1. [앱 주소](https://niraaah.github.io/GoodMorNing/)를 엽니다. 홈은 PC가 꺼져 있어도 열립니다.
 2. PC에서 `scripts/start.ps1`, `scripts/tunnel.ps1`을 실행합니다.
-3. 터널 스크립트가 출력하는 Pages 연결 링크를 엽니다. 또는 앱의 **에셋 → 서버 연결**에서 HTTPS 터널 주소와 `data/access.key`의 값을 입력합니다.
+3. **기본 앱 주소만 열면 이 PC의 GPU 서버에 자동 연결됩니다.** 별도 링크, 서버 주소 입력, 접근 키 입력은 필요하지 않습니다.
 4. 사진 업로드·생성·에셋·다이어리는 연결된 PC에서 처리합니다. PC, API, 터널이 모두 켜져 있어야 합니다.
 
-서버 주소는 localStorage, 접근 키는 해당 탭의 sessionStorage에 보관합니다. 연결 링크의 fragment는 읽은 직후 주소창에서 제거합니다. API 요청은 Authorization Bearer 헤더를 사용하므로 서드파티 쿠키에 의존하지 않습니다. 키는 공개 코드·Actions 변수·배포 파일에 넣지 않습니다.
+공개 서버 주소는 GitHub Actions 변수 `GPU_API_URL` → `runtime-config.json`으로 전달합니다. 앱이 `/auth/guest`에서 브라우저별 연결 토큰을 자동 발급받아 localStorage에 보관합니다. 사진·작업·다이어리는 토큰별로 분리하고 기본 샘플만 공유합니다. 다른 브라우저나 기기에서는 별도 보관함이 열리며, 브라우저 저장소를 지우면 기존 자동 연결 보관함을 다시 열 수 없습니다.
 
-CORS 기본 허용 출처는 `https://niraaah.github.io`입니다. 다른 프론트 도메인을 쓰려면 서버 실행 전 `GOODMORNING_FRONTEND_ORIGINS`를 쉼표로 구분해 설정하세요. 임시 Cloudflare 터널을 다시 시작하면 서버 주소가 바뀌므로 새 연결 링크를 사용해야 합니다. Pages의 앱 주소는 유지됩니다.
+기존 소유자의 데이터와 접근 키는 그대로 유지하며, 기존 비공개 연결 링크 또는 수동 설정으로 접근할 수 있습니다. 소유자 키는 공개 코드·Actions 변수·배포 파일에 넣지 않습니다. 이 구성은 로그인 없는 공개 방문자가 자신의 보관함에서 로컬 GPU로 스티커를 생성할 수 있는 데모입니다.
+
+CORS 기본 허용 출처는 `https://niraaah.github.io`입니다. 다른 프론트 도메인을 쓰려면 서버 실행 전 `GOODMORNING_FRONTEND_ORIGINS`를 쉼표로 구분해 설정하세요. `tunnel.ps1`은 새 터널 주소를 GitHub 변수에 반영하고 Pages를 재배포합니다. PC의 `gh`에 해당 저장소 권한이 있어야 합니다. 배포 후 앱을 새로고침하면 새 서버 주소를 자동으로 사용하며 Pages 주소는 유지됩니다. 재부팅 후 서버·터널을 자동 실행하는 Windows 시작 프로그램 등록은 포함하지 않습니다.
 
 `.github/workflows/pages.yml`은 고정 Flutter 버전과 고정 submodule을 사용해 정적 파일을 만들고 Pages에 배포합니다. GitHub 저장소 Settings → Pages → Source는 GitHub Actions로 설정합니다. 별도 Node 서버나 프론트 실행 파일을 받을 필요가 없습니다.
 
@@ -82,6 +84,8 @@ GoodMorNing/
 │  ├─ setup_models.py         고정 버전 SAM 2 ONNX 모델 다운로드
 │  ├─ build.ps1               Flutter 웹 빌드
 │  ├─ prepare_frontend.py      원본 홈·메뉴·정적 3D 파일 준비
+│  ├─ write_connection.py      공개 GPU 주소를 웹 런타임 설정에 기록
+│  ├─ publish_connection.ps1   터널 주소 변경 → Pages 자동 재배포
 │  ├─ start.ps1               앱/API 백그라운드 실행
 │  ├─ tunnel.ps1              외부 접속 링크 생성
 │  ├─ stop.ps1                이 프로젝트의 서버·터널 종료
@@ -147,7 +151,7 @@ cd GoodMorNing
 - 이 PC와 서버·터널 프로세스가 켜져 있어야 합니다.
 - 임시 터널을 새로 시작하면 주소가 바뀝니다. 운영용 고정 도메인은 별도 설정이 필요합니다.
 - 사진 처리는 이 PC에서 실행됩니다. 외부 접속의 HTTPS 트래픽은 Cloudflare Tunnel을 경유합니다.
-- 현재는 한 사용자의 공용 에셋함입니다. 링크를 공유받은 사람도 같은 데이터에 접근하므로 전체 접속 링크를 공개 저장소에 올리지 마세요.
+- 소유자용 전체 접속 링크는 기존 비공개 데이터에 접근합니다. 기본 Pages 주소의 자동 방문자 연결은 브라우저별로 데이터를 분리합니다.
 
 ```powershell
 .\scripts\stop.ps1 -TunnelOnly  # 외부 접속만 종료

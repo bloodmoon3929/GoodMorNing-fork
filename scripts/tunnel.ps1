@@ -31,6 +31,7 @@ for($attempt=0;$attempt -lt 80;$attempt++){
     $pagesLink='https://niraaah.github.io/GoodMorNing/#server='+[Uri]::EscapeDataString($address)+'&key='+[Uri]::EscapeDataString($key)
     $pagesLink | Set-Content -LiteralPath (Join-Path $logsPath 'pages-link.txt')
     Write-Output "GitHub Pages: $pagesLink"
+    & (Join-Path $PSScriptRoot 'publish_connection.ps1') -ServerAddress $address
     exit 0
   }
 }

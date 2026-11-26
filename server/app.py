@@ -22,7 +22,7 @@ from PIL import Image
 
 from .gpu import Segmenter
 from .stickers import generate, normalized_image
-from .access import COOKIE, load_key, session, requires_access, authorized, connect_page
+from .access import COOKIE, load_key, session, requires_access, authorized, connect_page, guest_token, guest_owner
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.getenv('GOODMORNING_DATA', str(ROOT / 'data'))).resolve()
@@ -31,6 +31,7 @@ DB = DATA / 'goodmorning.sqlite3'
 tasks = queue.Queue(maxsize=4)
 segmenter = Segmenter(DATA / 'models' / 'sam2')
 log = logging.getLogger('goodmorning')
+SAMPLES = {'pochita', '2026_11_24_08_15', '2026_11_24_08_16'}
 
 
 def now():
@@ -53,6 +54,7 @@ def initialize():
     with connection() as con:
         con.executescript('''
           PRAGMA journal_mode=WAL;
+          CREATE TABLE IF NOT EXISTS ownership(kind TEXT NOT NULL, ident TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY(kind, ident));
           CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
               engine TEXT NOT NULL, created TEXT NOT NULL, metadata TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, name TEXT NOT NULL, state TEXT NOT NULL,
@@ -77,6 +79,17 @@ def initialize():
                          {'id': 'starter-1', 'asset_id': 'pochita', 'x': .28, 'y': .40, 'size': .32, 'rotation': -12},
                          {'id': 'starter-2', 'asset_id': '2026_11_24_08_16', 'x': .70, 'y': .64, 'size': .29, 'rotation': 11}]}
             con.execute('INSERT INTO diaries VALUES(?,?,?)', (diary['id'], json.dumps(diary, ensure_ascii=False), now()))
+
+
+def accessible(con, kind, ident, owner):
+    if kind == 'asset' and ident in SAMPLES:
+        return True
+    row = con.execute('SELECT owner FROM ownership WHERE kind=? AND ident=?', (kind, ident)).fetchone()
+    return (row['owner'] if row else 'private') == owner
+
+
+def assign(con, kind, ident, owner):
+    con.execute('INSERT INTO ownership VALUES(?,?,?)', (kind, ident, owner))
 
 
 def asset_dict(row):
@@ -108,6 +121,7 @@ def worker():
             with connection() as con:
                 con.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)',
                             (ident, options['name'], 'sticker', options['engine'], now(), json.dumps(info)))
+                assign(con, 'asset', ident, options.get('owner', 'private'))
             update_job(ident, 'completed', 100, '에셋함에 저장했어요!', ident)
         except Exception as error:
             log.exception('Sticker generation failed for %s', ident)
@@ -141,7 +155,10 @@ async def same_origin(request: Request, call_next):
         if origin not in ALLOWED_ORIGINS and (parsed.scheme not in ('http', 'https') or parsed.netloc != request.headers.get('host')):
             return JSONResponse({'detail': '다른 사이트에서 보낸 요청은 허용되지 않습니다.'}, 403)
     external_frontend = origin in ALLOWED_ORIGINS and urlsplit(origin).netloc != request.headers.get('host')
-    if request.url.path not in ('/connect','/auth/login') and (requires_access(request) or external_frontend) and not authorized(request,app.state.access_key):
+    private = authorized(request, app.state.access_key) or not (requires_access(request) or external_frontend)
+    visitor = guest_owner(request, app.state.access_key)
+    request.state.owner = 'private' if private else visitor
+    if request.url.path not in ('/connect','/auth/login','/auth/guest') and not private and not visitor:
         if request.url.path.startswith(('/api/','/files/')):
             return JSONResponse({'detail':'접속 링크로 먼저 로그인해 주세요.'},401)
         return RedirectResponse('/connect',status_code=303)
@@ -179,6 +196,14 @@ async def login(request: Request):
     return response
 
 
+@app.post('/auth/guest', include_in_schema=False)
+def automatic_session(request: Request):
+    # A public browser gets only its own collection, never the private owner's key/data.
+    if request.headers.get('origin') not in ALLOWED_ORIGINS:
+        raise HTTPException(403, '앱에서 연결해 주세요.')
+    return JSONResponse({'token': guest_token(app.state.access_key)}, headers={'Cache-Control': 'no-store'})
+
+
 @app.get('/api/health')
 def health():
     gpu = segmenter.status()
@@ -188,9 +213,9 @@ def health():
 
 
 @app.get('/api/assets')
-def assets():
+def assets(request: Request):
     with connection() as con:
-        return [asset_dict(row) for row in con.execute('SELECT * FROM assets ORDER BY created DESC')]
+        return [asset_dict(row) for row in con.execute('SELECT * FROM assets ORDER BY created DESC') if accessible(con, 'asset', row['id'], request.state.owner)]
 
 
 async def uploaded_image(photo):
@@ -205,7 +230,7 @@ async def uploaded_image(photo):
 
 
 @app.post('/api/stickers', status_code=202)
-async def create_sticker(photo: UploadFile = File(), name: str = Form(min_length=1, max_length=60),
+async def create_sticker(request: Request, photo: UploadFile = File(), name: str = Form(min_length=1, max_length=60),
                          engine: Literal['sam2-gaussian'] = Form('sam2-gaussian'),
                          background: Literal['auto', 'keep'] = Form('auto'), box: str = Form('[0.05,0.05,0.95,0.95]')):
     if not name.strip():
@@ -225,8 +250,9 @@ async def create_sticker(photo: UploadFile = File(), name: str = Form(min_length
     image.save(dest / 'source.png')
     with connection() as con:
         con.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?)', (ident, name.strip(), 'queued', 0, '차례를 기다리고 있어요', None, now()))
+        assign(con, 'job', ident, request.state.owner)
     try:
-        tasks.put_nowait((ident, {'name': name.strip(), 'engine': engine, 'background': background, 'box': bounds}))
+        tasks.put_nowait((ident, {'name': name.strip(), 'engine': engine, 'background': background, 'box': bounds, 'owner': request.state.owner}))
     except queue.Full:
         update_job(ident, 'failed', 0, '대기열이 가득 찼어요. 다시 시도해 주세요.')
         raise HTTPException(429, '대기열이 가득 찼어요.')
@@ -234,7 +260,7 @@ async def create_sticker(photo: UploadFile = File(), name: str = Form(min_length
 
 
 @app.post('/api/photos', status_code=201)
-async def add_photo(photo: UploadFile = File(), name: str = Form('나의 사진', max_length=60)):
+async def add_photo(request: Request, photo: UploadFile = File(), name: str = Form('나의 사진', max_length=60)):
     image = await uploaded_image(photo)
     ident = uuid.uuid4().hex
     dest = DATA / 'assets' / ident
@@ -242,18 +268,21 @@ async def add_photo(photo: UploadFile = File(), name: str = Form('나의 사진'
     image.save(dest / 'sticker.png')
     with connection() as con:
         con.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)', (ident, name, 'photo', 'photo', now(), '{}'))
+        assign(con, 'asset', ident, request.state.owner)
         return asset_dict(con.execute('SELECT * FROM assets WHERE id=?', (ident,)).fetchone())
 
 
 @app.get('/api/jobs')
-def jobs():
+def jobs(request: Request):
     with connection() as con:
-        return [dict(row) for row in con.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30')]
+        return [dict(row) for row in con.execute('SELECT * FROM jobs ORDER BY created DESC') if accessible(con, 'job', row['id'], request.state.owner)][:30]
 
 
 @app.get('/api/jobs/{ident}')
-def job(ident: str):
+def job(ident: str, request: Request):
     with connection() as con:
+        if not accessible(con, 'job', ident, request.state.owner):
+            raise HTTPException(404, '작업을 찾지 못했어요.')
         row = con.execute('SELECT * FROM jobs WHERE id=?', (ident,)).fetchone()
     if row is None:
         raise HTTPException(404, '작업을 찾지 못했어요.')
@@ -280,31 +309,47 @@ class Diary(BaseModel):
 
 
 @app.get('/api/diaries')
-def diaries():
+def diaries(request: Request):
     with connection() as con:
-        return [json.loads(row['body']) for row in con.execute('SELECT body FROM diaries ORDER BY updated DESC')]
+        result = [json.loads(row['body']) for row in con.execute('SELECT id,body FROM diaries ORDER BY updated DESC') if accessible(con, 'diary', row['id'], request.state.owner)]
+        if not result and request.state.owner != 'private':
+            ident = request.state.owner + '-first'
+            diary = {'id': ident, 'title': '나의 다이어리', 'date': datetime.now().strftime('%Y-%m-%d'), 'note': '', 'paper': '#fff9eb', 'placements': []}
+            con.execute('INSERT OR IGNORE INTO diaries VALUES(?,?,?)', (ident, json.dumps(diary, ensure_ascii=False), now()))
+            con.execute('INSERT OR IGNORE INTO ownership VALUES(?,?,?)', ('diary', ident, request.state.owner))
+            result = [diary]
+        return result
 
 
 @app.put('/api/diaries/{ident}')
-def save_diary(ident: str, diary: Diary):
+def save_diary(ident: str, diary: Diary, request: Request):
     if ident != diary.id:
         raise HTTPException(400, '다이어리 ID가 일치하지 않아요.')
     ids = [p.id for p in diary.placements]
     if len(ids) != len(set(ids)):
         raise HTTPException(422, '스티커 배치 ID는 서로 달라야 합니다.')
     with connection() as con:
-        known = {row['id'] for row in con.execute('SELECT id FROM assets')}
+        con.execute('BEGIN IMMEDIATE')
+        exists = con.execute('SELECT id FROM diaries WHERE id=?', (ident,)).fetchone()
+        if exists and not accessible(con, 'diary', ident, request.state.owner):
+            raise HTTPException(404, '다이어리를 찾지 못했어요.')
+        known = {row['id'] for row in con.execute('SELECT id FROM assets') if accessible(con, 'asset', row['id'], request.state.owner)}
         if any(p.asset_id not in known for p in diary.placements):
             raise HTTPException(422, '저장되지 않은 에셋은 붙일 수 없어요.')
         con.execute('INSERT INTO diaries VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,updated=excluded.updated',
                     (ident, diary.model_dump_json(), now()))
+        if not exists:
+            assign(con, 'diary', ident, request.state.owner)
     return diary
 
 
 @app.get('/files/{ident}/{filename}')
-def file(ident: str, filename: str):
+def file(ident: str, filename: str, request: Request):
     if filename not in ('sticker.glb', 'sticker.png', 'sticker.json', 'sticker.ply', 'sticker.splat') or not ident.replace('_', '').replace('-', '').isalnum():
         raise HTTPException(404)
+    with connection() as con:
+        if not accessible(con, 'asset', ident, request.state.owner):
+            raise HTTPException(404)
     path = DATA / 'assets' / ident / filename
     if not path.is_file():
         raise HTTPException(404)

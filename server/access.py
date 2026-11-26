@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import secrets
+import re
 from pathlib import Path
 from fastapi.responses import HTMLResponse
 
@@ -24,6 +25,22 @@ def authorized(request, key):
     if bearer.startswith('Bearer '):
         return hmac.compare_digest(bearer[7:].encode(), key.encode())
     return hmac.compare_digest(request.cookies.get(COOKIE,''), session(key))
+
+
+def guest_token(key):
+    ident = secrets.token_hex(16)
+    signature = hmac.new(key.encode(), ('guest:' + ident).encode(), hashlib.sha256).hexdigest()
+    return f'guest.{ident}.{signature}'
+
+
+def guest_owner(request, key):
+    token = request.headers.get('authorization', '').removeprefix('Bearer ')
+    match = re.fullmatch(r'guest\.([a-f0-9]{32})\.([a-f0-9]{64})', token)
+    if not match:
+        return None
+    ident, signature = match.groups()
+    expected = hmac.new(key.encode(), ('guest:' + ident).encode(), hashlib.sha256).hexdigest()
+    return 'guest-' + ident if hmac.compare_digest(signature, expected) else None
 
 def connect_page():
     return HTMLResponse('''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>굿모닝에 들어가기</title>

@@ -6,6 +6,8 @@ import 'package:web/web.dart' as web;
 class Api {
   static String base = const String.fromEnvironment('API_BASE');
   static String token = '';
+  static bool _automaticReady = false;
+  static bool _explicitConnection = false;
   static final _images = <String, Future<Uint8List>>{};
   static bool get hosted => Uri.base.host.endsWith('github.io');
   static bool get configured => base.isNotEmpty || !hosted;
@@ -16,6 +18,7 @@ class Api {
     token = web.window.sessionStorage.getItem('goodmorning-token') ?? '';
     final fragment = Uri.splitQueryString(Uri.base.fragment);
     if (fragment.containsKey('server')) {
+      _explicitConnection = true;
       configure(fragment['server']!, fragment['key'] ?? '');
       web.window.history.replaceState(
         null,
@@ -23,6 +26,47 @@ class Api {
         '${Uri.base.path}${Uri.base.hasQuery ? '?${Uri.base.query}' : ''}',
       );
     }
+  }
+
+  static Future<void> autoConnect() async {
+    if (!hosted || _automaticReady || _explicitConnection) return;
+    final configResponse = await http
+        .get(
+          staticUri('runtime-config.json').replace(
+            queryParameters: {
+              'v': DateTime.now().millisecondsSinceEpoch.toString(),
+            },
+          ),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (configResponse.statusCode != 200)
+      throw Exception('자동 연결 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.');
+    final config = jsonDecode(configResponse.body) as Map<String, dynamic>;
+    final address = config['apiBase'] as String? ?? '';
+    if (address.isEmpty) throw Exception('GPU 서버 주소가 아직 배포되지 않았어요.');
+    final previousToken = token.isNotEmpty
+        ? token
+        : web.window.localStorage.getItem('goodmorning-visitor-token') ?? '';
+    configure(address, previousToken);
+    if (token.isNotEmpty) {
+      final response = await http
+          .get(uri('/api/health'), headers: headers)
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode == 200) {
+        _automaticReady = true;
+        return;
+      }
+      if (![401, 403].contains(response.statusCode))
+        throw Exception('PC의 GPU 서버가 응답하지 않아요. 잠시 후 다시 시도해 주세요.');
+    }
+    final response = await http
+        .post(uri('/auth/guest'))
+        .timeout(const Duration(seconds: 20));
+    final result = check(response) as Map<String, dynamic>;
+    token = result['token'] as String;
+    web.window.localStorage.setItem('goodmorning-visitor-token', token);
+    web.window.sessionStorage.setItem('goodmorning-token', token);
+    _automaticReady = true;
   }
 
   static void configure(String server, String key) {
@@ -43,6 +87,11 @@ class Api {
     _images.clear();
     web.window.localStorage.setItem('goodmorning-api', base);
     web.window.sessionStorage.setItem('goodmorning-token', token);
+  }
+
+  static void useManualConnection(String server, String key) {
+    configure(server, key);
+    _explicitConnection = true;
   }
 
   static Uri staticUri(String path) => Uri.base.resolve(path);

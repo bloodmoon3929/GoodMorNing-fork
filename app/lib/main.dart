@@ -106,6 +106,16 @@ class _StudioState extends State<Studio> {
   }
 
   Future<void> load() async {
+    try {
+      await Api.autoConnect();
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          loading = false;
+          error = e.toString();
+        });
+      return;
+    }
     if (!Api.configured) {
       setState(() => loading = false);
       return;
@@ -441,7 +451,7 @@ class _StudioState extends State<Studio> {
                   : () async {
                       update(() => busy = true);
                       try {
-                        Api.configure(address.text, key.text);
+                        Api.useManualConnection(address.text, key.text);
                         final result = await Api.get('/api/health');
                         if (result['engine'] != 'sam2-gaussian')
                           throw Exception('굿모닝 GPU 서버 주소를 입력해 주세요.');
@@ -508,9 +518,9 @@ class _StudioState extends State<Studio> {
                         ),
                         const Spacer(),
                         TextButton(
-                          onPressed: connectServer,
+                          onPressed: health == null ? load : connectServer,
                           child: Text(
-                            health == null ? '서버 연결' : '연결됨',
+                            health == null ? '다시 연결' : '연결됨',
                             style: const TextStyle(fontSize: 12),
                           ),
                         ),
@@ -529,7 +539,7 @@ class _StudioState extends State<Studio> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 const Text(
-                                  '내 PC의 수집방 연결하기',
+                                  'GPU 서버에 연결할 수 없어요',
                                   style: TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
@@ -548,13 +558,13 @@ class _StudioState extends State<Studio> {
                                 ),
                                 const SizedBox(height: 20),
                                 FilledButton(
-                                  onPressed: connectServer,
-                                  child: const Text('GPU 서버 연결'),
+                                  onPressed: load,
+                                  child: const Text('다시 연결'),
                                 ),
                                 if (Api.configured)
                                   TextButton(
-                                    onPressed: load,
-                                    child: const Text('다시 불러오기'),
+                                    onPressed: connectServer,
+                                    child: const Text('연결 설정'),
                                   ),
                               ],
                             ),
