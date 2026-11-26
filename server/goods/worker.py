@@ -21,12 +21,13 @@ from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field
 from .config import ROOT, DATA, MODEL_REVISION, settings
 from .coupang import search as coupang_search
+from . import catalog
 
 log=logging.getLogger('goods-search')
 cache=DATA/'goods-cache'; cache.mkdir(parents=True,exist_ok=True)
 model=None; model_error=None
 model_lock=threading.Lock(); search_lock=threading.Lock()
-query_cache={}
+image_cache=DATA/'catalog-images'; image_cache.mkdir(parents=True,exist_ok=True)
 
 def load_model():
     global model, model_error
@@ -53,6 +54,7 @@ def warmup():
 
 @asynccontextmanager
 async def lifespan(app):
+    catalog.initialize()
     threading.Thread(target=warmup,daemon=True).start()
     yield
 
@@ -83,9 +85,9 @@ def collect(query):
     config=settings()
     # Changing credentials/collection settings immediately invalidates cached configuration errors.
     fingerprint=hashlib.sha256(json.dumps(config,sort_keys=True).encode()).hexdigest()
-    key=(query.casefold(),fingerprint)
-    cached=query_cache.get(key)
-    if cached and time.time()-cached[0] < 900: return cached[1],cached[2]
+    cached=catalog.cached_sources(query,fingerprint)
+    if cached is not None: return catalog.candidates(query),cached
+    started=time.time()
     products, state=coupang_search(query)
     states=[state,{'source':'네이버','state':'manual','message':'네이버 상품은 링크를 직접 입력해 연결할 수 있어요.'}]
     if config.get('official_shops',True):
@@ -100,9 +102,12 @@ def collect(query):
             except (subprocess.SubprocessError,OSError,ValueError,KeyError):
                 states.append({'source':'공식 굿즈몰','state':'unavailable','message':'공식몰에 연결하지 못했어요. 잠시 후 다시 검색해 주세요.'})
     unique=list({p['id']:p for p in products}.values())[:32]
-    if len(query_cache)>100: query_cache.clear()
-    query_cache[key]=(time.time(),unique,states)
-    return unique,states
+    catalog.record_collection(query,fingerprint,unique,states,started)
+    saved=catalog.candidates(query)
+    if saved:
+        states.append({'source':'저장된 상품 목록','state':'ok',
+                       'message':'이전에 수집한 상품도 함께 비교해요. 최신 가격·옵션은 구매 페이지에서 확인해 주세요.'})
+    return saved,states
 
 def remote_image(url):
     if not url: return None
@@ -127,12 +132,47 @@ def remote_image(url):
     except (httpx.HTTPError,OSError,ValueError,Image.DecompressionBombError): pass
     return None
 
-def embedding(value, identity=None):
-    vector_file=cache/(hashlib.sha256((MODEL_REVISION+identity).encode()).hexdigest()+'.npy') if identity else None
-    if vector_file and vector_file.exists(): return np.load(vector_file,allow_pickle=False)
+def product_image(product):
+    """Only public listing thumbnails are persisted; input photos stay in memory."""
+    record=catalog.image_record(product['offer_id'])
+    saved=None
+    if record and record['source_url']==product.get('image_url'):
+        path=(image_cache/record['local_path']).resolve()
+        if path.is_relative_to(image_cache.resolve()) and path.is_file():
+            try:
+                content=path.read_bytes()
+                if hashlib.sha256(content).hexdigest()==record['sha256']:
+                    with Image.open(io.BytesIO(content)) as image: saved=image.convert('RGB')
+                    if time.time()-record['observed_at']<86400:return saved
+            except (OSError,ValueError):pass
+    image=remote_image(product.get('image_url'))
+    if image is None:return saved
+    output=io.BytesIO();image.save(output,format='JPEG',quality=80)
+    content=output.getvalue();sha=hashlib.sha256(content).hexdigest()
+    filename=sha+'.jpg';path=image_cache/filename
+    # Content-addressed immutable files remain valid during concurrent reads.
+    if not path.exists():
+        with tempfile.NamedTemporaryFile(dir=image_cache,suffix='.tmp',delete=False) as output:
+            output.write(content);temp=Path(output.name)
+        try:temp.replace(path)
+        finally:temp.unlink(missing_ok=True)
+    catalog.record_image(product['offer_id'],product['image_url'],filename,sha,image.width,image.height)
+    return image
+
+
+def embedding(value, identity=None, offer_id=None, kind=None):
+    content_hash=catalog.digest(identity) if identity else None
+    cached=catalog.vector(offer_id,kind,MODEL_REVISION,content_hash) if offer_id else None
+    if cached:
+        dimensions,raw=cached
+        result=np.frombuffer(raw,dtype='<f4')
+        if result.size==dimensions and np.isfinite(result).all() and np.linalg.norm(result)>0:return result
     result=load_model().encode([value],normalize_embeddings=True,show_progress_bar=False,
         processing_kwargs={'image':{'max_soft_tokens':280}})[0].astype('float32')
-    if vector_file: np.save(vector_file,result,allow_pickle=False)
+    if result.ndim!=1 or not np.isfinite(result).all() or np.linalg.norm(result)==0:
+        raise ValueError('Invalid embedding')
+    if offer_id:
+        catalog.record_vector(offer_id,kind,MODEL_REVISION,content_hash,len(result),result.astype('<f4').tobytes())
     return result
 
 @app.post('/search')
@@ -150,15 +190,15 @@ def search(body:Search):
         except Exception:raise HTTPException(503,'사진 비교 모델을 준비 중이에요. 잠시 후 다시 시도하거나 상품 링크를 직접 연결해 주세요.')
         ranked=[]
         with ThreadPoolExecutor(max_workers=4) as downloads:
-            images=list(downloads.map(lambda item:remote_image(item.get('image_url')),products))
+            images=list(downloads.map(product_image,products))
         for product,image in zip(products,images):
             item=dict(product)
             if image is not None:
                 output=io.BytesIO();image.save(output,format='JPEG',quality=80);raw=output.getvalue()
-                vector=embedding({'image':image},hashlib.sha256(raw).hexdigest())
+                vector=embedding({'image':image},hashlib.sha256(raw).hexdigest(),item['offer_id'],'image')
                 item['image_data']=base64.b64encode(raw).decode();item['basis']='image'
             else:
-                vector=embedding(item['title'],'text:'+item['title']);item['basis']='text';item['image_data']=None
+                vector=embedding(item['title'],'text:'+item['title'],item['offer_id'],'text');item['basis']='text';item['image_data']=None
             item['similarity']=float(np.dot(query_vector,vector))
             item['retrieved_at']=int(time.time());item.pop('image_url',None)
             ranked.append(item)

@@ -55,7 +55,7 @@ class _GoodsMatchDialogState extends State<GoodsMatchDialog> {
       items = [];
       sources = [];
       searchId = null;
-      status = '판매처에서 후보를 찾고 사진을 비교하고 있어요. 처음에는 조금 걸릴 수 있어요.';
+      status = '저장된 상품과 판매처 후보를 찾아 사진을 비교하고 있어요. 처음에는 조금 걸릴 수 있어요.';
     });
     try {
       final fields = Map<String, String>.from(widget.draft['fields']);
@@ -133,6 +133,11 @@ class _GoodsMatchDialogState extends State<GoodsMatchDialog> {
 
   Widget candidate(Map<String, dynamic> item) {
     final chosen = selected == item['id'];
+    final observed = item['observed_at'] is num
+        ? DateTime.fromMillisecondsSinceEpoch(
+            (item['observed_at'] as num).toInt() * 1000,
+          ).toLocal()
+        : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
@@ -189,6 +194,14 @@ class _GoodsMatchDialogState extends State<GoodsMatchDialog> {
                         color: Color(0xff6b8088),
                       ),
                     ),
+                    if (observed != null)
+                      Text(
+                        '${item['stale'] == true ? '이전 수집 정보 · ' : ''}${observed.year}.${observed.month}.${observed.day} 수집 · 최신 가격은 판매처에서 확인',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Color(0xff6b8088),
+                        ),
+                      ),
                     TextButton(
                       onPressed: () => web.window.open(
                         item['url'],

@@ -24,6 +24,7 @@ from .gpu import Segmenter
 from .stickers import generate, normalized_image
 from . import notebook, asset_trash
 from .goods import api as goods_api
+from .goods import catalog
 from .access import COOKIE, load_key, session, requires_access, authorized, connect_page, guest_token, guest_owner
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,6 +54,7 @@ def initialize():
     (DATA / 'assets').mkdir(parents=True, exist_ok=True)
     (DATA / 'models').mkdir(exist_ok=True)
     app.state.access_key = load_key(DATA)
+    catalog.initialize()
     with connection() as con:
         notebook.initialize(con, DATA)
         asset_trash.initialize(con)
@@ -84,6 +86,7 @@ def initialize():
                          {'id': 'starter-1', 'asset_id': 'pochita', 'x': .28, 'y': .40, 'size': .32, 'rotation': -12},
                          {'id': 'starter-2', 'asset_id': '2026_11_24_08_16', 'x': .70, 'y': .64, 'size': .29, 'rotation': 11}]}
             con.execute('INSERT INTO diaries VALUES(?,?,?)', (diary['id'], json.dumps(diary, ensure_ascii=False), now()))
+        catalog.backfill_links(con)
 
 
 def accessible(con, kind, ident, owner):
@@ -128,6 +131,7 @@ def worker():
                 con.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)',
                             (ident, options['name'], 'sticker', options['engine'], now(), json.dumps(info)))
                 assign(con, 'asset', ident, options.get('owner', 'private'))
+                catalog.link_asset(con,ident,options.get('owner','private'),options.get('goods'))
             update_job(ident, 'completed', 100, '에셋함에 저장했어요!', ident)
         except Exception as error:
             log.exception('Sticker generation failed for %s', ident)
