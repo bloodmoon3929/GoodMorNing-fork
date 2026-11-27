@@ -31,6 +31,9 @@ def known_secrets():
     values=set()
     def add(value):
         if isinstance(value,str) and len(value.strip())>=12: values.add(value.strip())
+    for name in ('postgres.key',):
+        path=ROOT/'data'/name
+        if path.exists():add(path.read_text(encoding='utf-8').strip())
     keyfile=ROOT/'data/access.key'
     if keyfile.exists():
         key=keyfile.read_text(encoding='utf-8').strip();add(key)

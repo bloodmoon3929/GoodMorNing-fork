@@ -10,6 +10,15 @@ function hasPolaroidImage(photo, index) {
     (index === storyIndex && !newDiaryPage && diaryCards[index]?.querySelector('img')?.dataset.original));
 }
 
+// Keep array indexes stable: they identify photos, captions and attachments.
+// Order applies only inside the isolated photo plane, below every sticker.
+function diaryPhotoStack(photos) {
+  return photos.map((photo,index) => ({photo,index}))
+    .filter(({photo,index}) => !photo.removed && (index === storyIndex || index >= stories.length) && hasPolaroidImage(photo,index))
+    .sort((a,b) => (Number.isFinite(a.photo.layerOrder) ? a.photo.layerOrder : a.index) -
+      (Number.isFinite(b.photo.layerOrder) ? b.photo.layerOrder : b.index) || a.index-b.index);
+}
+
 function renderPolaroidCaption(card, photo, index, blank) {
   const caption = card.querySelector('figcaption');
   const text = photo.caption ?? (index === storyIndex && !newDiaryPage ? story.title : '');

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>굿모닝 DB 관리</title>
+<style>
+  :root {
+    --ink: #294653; --blue: #659bb7; --sky: #eef7fc; --line: #d5e5ed; --tile: #e6f2fa;
+    --muted: #78909c; --warn: #a9453c; --warn-bg: #fff6f4; --card: #ffffff;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--sky); color: var(--ink);
+    font: 14px/1.6 "Malgun Gothic", system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  }
+  main { padding: 12px 16px 32px; max-width: 960px; margin: 0 auto; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .back { display: inline-block; color: var(--blue); padding: 4px 0; font-size: 13px; text-decoration: none; }
+  h1 { font-size: 20px; margin: 4px 0 4px; }
+  h2 { font-size: 13px; margin: 22px 0 8px; letter-spacing: .02em; }
+  .lead { margin: 0; font-size: 12px; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 14px 0 0; font-size: 12px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .warn { color: var(--warn); }
+  .login { margin-top: 14px; display: grid; gap: 8px; }
+  .login[hidden] { display: none; }
+  .login label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  .login input { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: #f6fafc; min-width: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid #c9dfe9; background: var(--tile); border-radius: 99px; padding: 5px 11px; font-size: 12px; }
+  .chip b { font-weight: 600; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .chip.preset { background: var(--card); border-color: var(--line); }
+  .chip:hover { border-color: var(--blue); }
+  textarea {
+    width: 100%; min-height: 112px; resize: vertical; border: 1px solid var(--line); border-radius: 12px;
+    background: #f6fafc; color: var(--ink); padding: 10px 12px; font: 12.5px/1.55 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  .run { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+  .primary { border: 0; border-radius: 12px; background: var(--ink); color: #fff; padding: 9px 18px; font-size: 13px; justify-self: start; }
+  .primary:disabled, .secondary:disabled { opacity: .5; cursor: default; }
+  .hint { font-size: 11px; color: var(--muted); }
+  .meta { font-size: 12px; color: var(--muted); margin: 14px 0 6px; min-height: 1.6em; }
+  .meta.error { color: var(--warn); background: var(--warn-bg); border: 1px solid #e7b4ad; border-radius: 10px; padding: 8px 10px; }
+  .result { overflow: auto; max-height: 62vh; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .result[hidden] { display: none; }
+  table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--ink); color: #fff; font-weight: 600; z-index: 1; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .null { color: #b0bec5; font-style: italic; }
+  .thumb { width: 44px; height: 44px; object-fit: contain; background: var(--tile); border-radius: 6px; display: block; }
+  details { max-width: 320px; white-space: normal; }
+  summary { cursor: pointer; color: var(--ink); overflow-wrap: anywhere; }
+  pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--ink); }
+  .foot { margin-top: 22px; display: grid; gap: 6px; }
+  .secondary { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 9px 14px; font-size: 13px; justify-self: start; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="../">← 굿모닝 앱</a>
+  <h1>DB 관리 · 조회</h1>
+  <p class="lead">PC 서버의 PostgreSQL을 읽기 전용으로 조회해요. 모든 방문자의 에셋·다이어리가 들어 있어서 PC 소유자 접근 키가 있어야 열려요. 조회는 SELECT 권한만 있는 계정으로, 한 문장씩 5초 안에서만 실행돼요.</p>
+
+  <div class="card" style="margin-top:14px">
+    <dl class="facts" id="facts" style="margin:0"><dt>상태</dt><dd>PC 서버에 연결하는 중이에요…</dd></dl>
+    <form class="login" id="login" hidden>
+      <label>PC 서버 주소<input id="server" type="url" placeholder="https://…trycloudflare.com" autocomplete="off" spellcheck="false"></label>
+      <label>접근 키 (이 탭을 닫으면 잊어요)<input id="key" type="password" autocomplete="off"></label>
+      <button class="primary" type="submit">연결</button>
+    </form>
+  </div>
+
+  <h2>표</h2>
+  <div class="chips" id="tables"></div>
+
+  <h2>바로 보기</h2>
+  <div class="chips" id="presets"></div>
+
+  <h2>SQL로 조회</h2>
+  <textarea id="sql" spellcheck="false" aria-label="조회할 SQL"></textarea>
+  <div class="run">
+    <button class="primary" id="run" type="button">실행</button>
+    <span class="hint">PostgreSQL SQL · 읽기 전용이라 바꾸는 문장은 막혀요 · Ctrl+Enter</span>
+  </div>
+  <p class="meta" id="meta" role="status"></p>
+  <div class="result" id="result" hidden></div>
+
+  <div class="foot">
+    <button class="secondary" id="download" type="button" disabled>조회 결과 CSV로 내려받기</button>
+    <span class="hint">사진·스티커 파일은 PC의 data/ 폴더에 있고, 표에는 경로가 저장돼요. 미리보기 칸은 그 파일을 보여 줘요.</span>
+  </div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const el = (tag, props = {}, ...children) => { const node = Object.assign(document.createElement(tag), props); node.append(...children); return node; };
+  const size = n => n == null ? '알 수 없음' : n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)}MB` : `${(n / 1073741824).toFixed(1)}GB`;
+  const read = (store, name) => { try { return store.getItem(name); } catch { return null; } };
+  const write = (store, name, value) => { try { store.setItem(name, value); } catch {} };
+  // On GitHub Pages the API lives on the PC behind the tunnel; on the PC server it is this origin.
+  const pages = location.hostname.endsWith('github.io');
+  let base = pages ? (read(sessionStorage, 'goodmorning-admin-api') || read(localStorage, 'goodmorning-api') || '') : location.origin;
+  let key = read(sessionStorage, 'goodmorning-admin-key') || '';
+  let urls = [], last = null;
+
+  const presets = [
+    ['에셋', `SELECT '/files/' || a.id || '/sticker.png' AS "미리보기", a.name AS "이름", a.kind AS "종류",
+       a.engine AS "만든 방법", a.created AS "만든 때", coalesce(o.owner, 'private') AS "소유자",
+       t.deleted_at AS "휴지통에 넣은 때", a.metadata -> 'goods' ->> 'title' AS "연결한 굿즈"
+FROM assets a
+LEFT JOIN ownership o ON o.kind = 'asset' AND o.ident = a.id
+LEFT JOIN asset_trash t ON t.asset_id = a.id
+ORDER BY a.created DESC`],
+    ['소유자별', `SELECT owner AS "소유자",
+       count(*) FILTER (WHERE kind = 'asset') AS "에셋",
+       count(*) FILTER (WHERE kind = 'diary') AS "다이어리",
+       count(*) FILTER (WHERE kind = 'job') AS "스티커 작업"
+FROM ownership GROUP BY owner ORDER BY 2 DESC`],
+    ['스티커 작업', `SELECT name AS "이름", state AS "상태", progress AS "진행률", message AS "메시지", created AS "시작한 때", id
+FROM jobs ORDER BY created DESC`],
+    ['다이어리 페이지', `SELECT owner AS "소유자", page_key AS "페이지",
+       jsonb_array_length(body -> 'items') AS "스티커",
+       jsonb_array_length(body -> 'diaryLayout') AS "사진 칸",
+       updated AS "게시한 때", body
+FROM notebook_pages ORDER BY updated DESC`],
+    ['굿즈 후보', `SELECT o.title AS "상품명", m.name AS "판매처", o.price AS "가격", o.affiliate AS "제휴",
+       o.observed_at AS "수집한 때", o.url
+FROM catalog_offers o JOIN catalog_malls m ON m.id = o.mall_id
+ORDER BY o.observed_at DESC`],
+    ['임베딩', `SELECT o.title AS "상품명", e.kind AS "종류", e.model AS "모델", e.dimensions AS "차원",
+       vector_norm(e.vector) AS "벡터 크기", e.created_at AS "만든 때"
+FROM catalog_embeddings e JOIN catalog_offers o ON o.id = e.offer_id
+ORDER BY e.created_at DESC`],
+    ['에셋-상품 연결', `SELECT a.name AS "에셋", l.owner AS "소유자", l.method AS "연결 방식",
+       l.snapshot ->> 'title' AS "상품명", l.snapshot ->> 'url' AS "링크", l.confirmed_at AS "확인한 때"
+FROM asset_product_links l JOIN assets a ON a.id = l.asset_id
+ORDER BY l.confirmed_at DESC`],
+    ['표 구조', `SELECT table_name AS "표", column_name AS "열", data_type AS "형식", is_nullable AS "빈 값 허용", column_default AS "기본값"
+FROM information_schema.columns WHERE table_schema = 'public'
+ORDER BY table_name, ordinal_position`],
+  ];
+
+  async function api(path, body) {
+    if (!base) throw Object.assign(new Error('PC 서버 주소를 입력해 주세요.'), { status: 401 });
+    const response = await fetch(base + path, {
+      method: body ? 'POST' : 'GET',
+      headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: pages ? 'omit' : 'same-origin',
+      referrerPolicy: 'no-referrer',
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw Object.assign(new Error(typeof detail.detail === 'string' ? detail.detail : `요청을 처리하지 못했어요. (${response.status})`), { status: response.status });
+    }
+    return response;
+  }
+
+  function showLogin(message) {
+    $('facts').replaceChildren(el('dt', { textContent: '상태' }), el('dd', { className: 'warn', textContent: message }));
+    $('server').value = base;
+    $('server').closest('label').hidden = !pages;
+    $('login').hidden = false;
+  }
+
+  async function connect() {
+    try {
+      const summary = await (await api('/api/admin/summary')).json();
+      $('login').hidden = true;
+      const facts = $('facts');
+      facts.replaceChildren();
+      const fact = (label, value) => facts.append(el('dt', { textContent: label }), el('dd', { textContent: value }));
+      fact('DB', `PostgreSQL ${summary.version} · pgvector ${summary.pgvector ?? '없음'} · ${summary.database}`);
+      fact('크기', size(summary.bytes));
+      fact('서버', pages ? base : '이 PC');
+      $('tables').replaceChildren(...summary.tables.map(table => {
+        const chip = el('button', { className: 'chip', type: 'button' }, table.name, el('b', { textContent: table.rows }));
+        chip.onclick = () => { $('sql').value = `SELECT * FROM "${table.name}" LIMIT 100`; execute(); };
+        return chip;
+      }));
+      execute();
+    } catch (error) {
+      showLogin([401, 403].includes(error.status) || !base ? `${error.message} 소유자 접근 키로 연결해 주세요.` : error.message);
+    }
+  }
+
+  function preview(path) {
+    const image = el('img', { className: 'thumb', alt: '' });
+    api(path).then(response => response.blob()).then(blob => {
+      const url = URL.createObjectURL(blob);
+      urls.push(url);
+      image.src = url;
+    }, () => image.replaceWith(el('span', { className: 'null', textContent: '없음' })));
+    return image;
+  }
+
+  function cellFor(value) {
+    const td = el('td');
+    if (value === null || value === undefined) td.append(el('span', { className: 'null', textContent: 'NULL' }));
+    else if (typeof value === 'number' || typeof value === 'boolean') { td.className = 'num'; td.textContent = String(value); }
+    else if (typeof value === 'string' && /^\/files\/[\w-]+\/sticker\.png$/.test(value)) td.append(preview(value));
+    else {
+      const text = typeof value === 'string' ? value : JSON.stringify(value);
+      if (text.length > 80) {
+        let full = text;
+        try { full = JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value, null, 2); } catch {}
+        td.append(el('details', {}, el('summary', { textContent: text.slice(0, 60) + '…' }), el('pre', { textContent: full })));
+      } else td.textContent = text;
+    }
+    return td;
+  }
+
+  async function execute() {
+    const meta = $('meta'), result = $('result'), button = $('run');
+    urls.forEach(url => URL.revokeObjectURL(url));
+    urls = [];
+    button.disabled = true;
+    meta.className = 'meta';
+    meta.textContent = '조회 중…';
+    const started = performance.now();
+    try {
+      const answer = await (await api('/api/admin/query', { sql: $('sql').value })).json();
+      meta.textContent = `${answer.rows.length}행${answer.more ? ` (처음 ${answer.limit}행까지만 표시)` : ''} · ${Math.max(1, Math.round(performance.now() - started))}ms`;
+      const head = el('tr', {}, ...answer.columns.map(name => el('th', { textContent: name })));
+      result.replaceChildren(el('table', {}, el('thead', {}, head), el('tbody', {}, ...answer.rows.map(row => el('tr', {}, ...row.map(cellFor))))));
+      result.hidden = answer.columns.length === 0;
+      last = answer;
+    } catch (error) {
+      meta.className = 'meta error';
+      meta.textContent = error.message;
+      result.hidden = true;
+      last = null;
+      if ([401, 403].includes(error.status)) showLogin(error.message);
+    } finally {
+      button.disabled = false;
+      $('download').disabled = !last?.columns.length;
+    }
+  }
+
+  $('login').addEventListener('submit', event => {
+    event.preventDefault();
+    if (pages) {
+      try { base = new URL($('server').value.trim()).origin; } catch { showLogin('https://로 시작하는 서버 주소를 입력해 주세요.'); return; }
+      write(sessionStorage, 'goodmorning-admin-api', base);
+    }
+    key = $('key').value.trim();
+    write(sessionStorage, 'goodmorning-admin-key', key);
+    $('key').value = '';
+    connect();
+  });
+  $('presets').append(...presets.map(([label, sql]) => {
+    const chip = el('button', { className: 'chip preset', type: 'button', textContent: label });
+    chip.onclick = () => { $('sql').value = sql; execute(); };
+    return chip;
+  }));
+  $('run').onclick = execute;
+  $('sql').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); execute(); }
+  });
+  $('download').onclick = () => {
+    if (!last) return;
+    const quote = value => value == null ? '' : (text => /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text)(typeof value === 'string' ? value : JSON.stringify(value));
+    const csv = [last.columns, ...last.rows].map(row => row.map(quote).join(',')).join('\r\n');
+    // The BOM lets spreadsheet programs read Korean text as UTF-8.
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    el('a', { href: url, download: `goodmorning-query-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.csv` }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
+  $('sql').value = presets[0][1];
+  if (pages && !base) {
+    fetch('../runtime-config.json', { cache: 'no-store' }).then(r => r.json()).then(config => { base = config.apiBase || ''; connect(); }, () => connect());
+  } else connect();
+})();
+</script>
+</body>
+</html>

@@ -16,5 +16,6 @@
 - SAM 2.1 ONNX conversion: https://huggingface.co/onnx-community/sam2.1-hiera-tiny-ONNX, revision `814a066640debee5a91e70aa401fb8e17e030503`. Model weights are downloaded locally and are not committed.
 - Flutter / Dart packages: see `app/pubspec.lock` and the Flutter dependency licenses exposed by their respective packages.
 - Python runtime packages: see `server/requirements-windows-lock.txt`.
+- Database: PostgreSQL 17 (PostgreSQL License) with the pgvector extension 0.8.7 (PostgreSQL License), run from the Docker image `pgvector/pgvector:0.8.7-pg17` (https://github.com/pgvector/pgvector). Python access uses psycopg 3 and psycopg-pool (LGPL-3.0, unmodified, installed from PyPI) and pgvector-python (MIT).
 
 This repository does not replace or relicense the upstream projects. Their notices and applicable license terms remain with their components. Refer to the linked source repositories for terms covering original artwork, examples and model weights.

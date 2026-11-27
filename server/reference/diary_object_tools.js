@@ -17,6 +17,9 @@ function createDiaryObjectEditor() {
   };
   const rotate = button('↻ 회전', '모서리를 드래그하는 회전 모드 열기', startRotation);
   const swap = button('바꾸기', '선택한 사진 또는 스티커 바꾸기', replaceObject);
+  const forward = button('앞으로', '폴라로이드를 한 단계 앞으로 이동', () => movePhotoLayer(1));
+  const backward = button('뒤로', '폴라로이드를 한 단계 뒤로 이동', () => movePhotoLayer(-1));
+  forward.hidden = backward.hidden = true;
   const remove = button('삭제', '이 페이지에서 선택한 개체 제거', removeObject);
   const rotationPanel = document.createElement('div'); rotationPanel.className = 'object-rotation';
   rotationPanel.hidden = true; toolbar.append(rotationPanel);
@@ -74,12 +77,31 @@ function createDiaryObjectEditor() {
     overlay.classList.toggle('is-rotating', active);
     rotate.hidden = swap.hidden = remove.hidden = active;
     rotationPanel.hidden = !active;
+    layerControls();
     toolbar.setAttribute('aria-label', active ? '모서리를 드래그해 회전한 뒤 적용 또는 취소' : '선택한 개체 편집');
     for (const handle of handles) {
       const label = active ? '모서리를 드래그해 회전. 방향키로도 조절할 수 있어요.' : '모서리를 드래그해 크기 조절. 방향키로도 조절할 수 있어요.';
       handle.title = label; handle.setAttribute('aria-label', label);
     }
     sync();
+  }
+  function layerControls() {
+    const visible = selection?.kind === 'photo' && rotationStart === null;
+    forward.hidden = backward.hidden = !visible;
+    if (!visible) return;
+    const stack = diaryPhotoStack(draftDiary ?? []), index = stack.findIndex(entry => entry.photo === selection.item);
+    backward.disabled = index <= 0;
+    forward.disabled = index < 0 || index >= stack.length-1;
+  }
+  function movePhotoLayer(direction) {
+    if (!valid() || selection.kind !== 'photo' || rotationStart !== null) return;
+    const stack = diaryPhotoStack(draftDiary), index = stack.findIndex(entry => entry.photo === selection.item);
+    const next = index+direction;
+    if (index < 0 || next < 0 || next >= stack.length) return;
+    endResize(); resetPlacement();
+    [stack[index],stack[next]] = [stack[next],stack[index]];
+    stack.forEach(({photo},rank) => { photo.layerOrder = rank; });
+    layerControls(); repaint();
   }
   function startRotation() {
     if (!valid() || rotationStart !== null) return;
@@ -223,6 +245,7 @@ function createDiaryObjectEditor() {
     animation=null;
     if (!valid()) { overlay.hidden=true; return; }
     overlay.hidden=false;
+    layerControls();
     swap.textContent=selection.kind==='photo'?'사진 바꾸기':'스티커 바꾸기';
     const g=geometry();
     Object.assign(frame.style,{left:g.cx+'px',top:g.cy+'px',width:g.width+'px',height:g.height+'px',

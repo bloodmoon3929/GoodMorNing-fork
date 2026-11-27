@@ -1,17 +1,17 @@
 # 현재 서비스 DB 명세
 
-기준: 2026-11-26. 초기 진행계획서 17~23쪽의 상품·판매처·수집 구분을 유지하고, 현재 스티커·폴라로이드·다이어리 기능에 맞춰 정리했다. 초기 문서의 SAM 3D/미니룸, 매장 재고 중심 구조는 현재 구현 명세와 구분한다.
+기준: 2026-11-27 (PostgreSQL 전환 반영). 초기 진행계획서 17~23쪽의 상품·판매처·수집 구분을 유지하고, 현재 스티커·폴라로이드·다이어리 기능에 맞춰 정리했다. 초기 문서의 SAM 3D/미니룸, 매장 재고 중심 구조는 현재 구현 명세와 구분한다.
 
 ## 저장 위치와 운영 범위
 
-- 현재 DB는 사용자 PC의 `data/goodmorning.sqlite3`이다. SQLite WAL 모드로 API와 로컬 검색 서버가 함께 사용한다.
+- 현재 DB는 사용자 PC의 Docker 컨테이너 `goodmorning-postgres`(PostgreSQL 17 + pgvector 0.8.7, `127.0.0.1:55432`)이다. API와 로컬 검색 서버가 같은 DB를 사용한다. 자료는 Docker 볼륨 `goodmorning-pgdata`, 비밀번호는 `data/postgres.key`에 있다.
 - 에셋 원본·생성 파일은 `data/assets/`, 다이어리 첨부는 `data/notebook-files/`, 수집 상품 썸네일은 `data/catalog-images/`에 보관한다. DB에는 파일 참조와 메타데이터를 저장한다.
 - 상품 임베딩은 실제 차원과 모델 revision을 기록한 float32 벡터로 DB에 저장한다. 사진 검색에 올린 사용자 사진과 검색 벡터는 검색 서버 메모리에서만 처리한다. 스티커 제작을 요청한 원본 사진의 기존 저장 동작은 유지한다.
-- DB·백업·이미지·키는 Git과 Pages 배포에서 제외한다. 브라우저는 인증된 로컬 API를 통해 접근하며 DB 자체를 공개하지 않는다.
+- DB·백업·이미지·키는 Git과 Pages 배포에서 제외한다. 브라우저는 인증된 로컬 API를 통해 접근하며 DB 자체를 공개하지 않는다. `/admin` 조회 화면은 소유자 접근 키로만 열리고, SELECT 권한만 있는 `goodmorning_reader` 계정으로 읽기 전용 조회만 한다.
 
 ## 이번에 추가한 테이블
 
-정확한 컬럼·제약은 `server/goods/catalog.sql`이 실행 명세다. 모든 시간은 UTC Unix 초이며, 가격은 현재 수집처 기준 KRW 정수다. 모르는 배송비·가격은 NULL, 재고는 unknown이다.
+정확한 컬럼·제약은 앱 표는 `server/schema.sql`, 카탈로그는 `server/goods/catalog.sql`이 실행 명세다. 모든 시간은 TIMESTAMPTZ(UTC)이고 JSON은 JSONB이며, 가격은 현재 수집처 기준 KRW 정수다. 모르는 배송비·가격은 NULL, 재고는 unknown이다.
 
 | 테이블 | 역할·주요 항목 |
 | --- | --- |
@@ -24,7 +24,7 @@
 | catalog_raw_listings | 수집 당시 공개 상품 필드와 매칭 검토 상태. 인증 헤더나 설정 원문은 저장하지 않음 |
 | catalog_query_cache / catalog_query_offers | 검색어 해시별 수집 상태·발견 상품 연결. 수집 요청은 15분 캐시, 상품 행은 계속 보관 |
 | catalog_images | 판매처 상품 이미지의 로컬 파일·내용 해시·해상도·관측 시각 |
-| catalog_embeddings | 판매 후보별 image/text 벡터·모델·revision·차원·내용 해시. 사용자 검색 벡터는 제외 |
+| catalog_embeddings | 판매 후보별 image/text pgvector 벡터·모델·revision·차원·내용 해시. 사용자 검색 벡터는 제외 |
 | asset_product_links | 에셋 소유자·사용자가 선택한 판매 정보·당시 정보 스냅샷·확인 방식·확인 시각 |
 | schema_migrations | 적용한 DB 구조 버전 |
 
@@ -58,18 +58,17 @@ API 키 없이도 허용된 공식몰의 Scrapy/Playwright 수집 경로로 후�
 
 페이지의 배치 삭제와 에셋함 삭제는 구분한다. 같은 스티커를 여러 번 붙일 때 각 배치는 독립 ID를 가져야 하며, 현재 프로토타입의 에셋 ID 중복 제한은 이후 배치 모델 분리 시 해소한다. 폴라로이드는 항상 스티커 아래 레이어에 두고, 자이로 센서 값은 매 프레임 DB에 저장하지 않는다.
 
-## PostgreSQL 전환 범위
+## PostgreSQL 전환
 
-초기 계획의 목표는 PostgreSQL + pgvector + PostGIS이며, 모두 같은 사용자 PC에 설치하는 구성이 가능하다. 이번 단계는 기존 SQLite를 유지한다. PostgreSQL 서버 설치·운영 전환은 아직 하지 않았다.
+초기 계획의 목표는 PostgreSQL + pgvector + PostGIS이며, 모두 같은 사용자 PC에 둔다. 2026-11-27에 SQLite에서 PostgreSQL로 옮겼다.
 
-- catalog_*는 catalog/online/ingest 스키마로 분리하고 기존 문자열 ID를 유지한다. JSON 문자열은 JSONB, UTC 초는 TIMESTAMPTZ로 변환한다.
-- catalog_embeddings의 float32-le와 dimensions를 읽어 pgvector에 적재한다. 모델 revision·차원이 다른 벡터를 같은 검색 인덱스에 섞지 않는다. 차원은 PPT의 예시 숫자에 고정하지 않는다.
-- 로그인용 테이블과 방문자 소유권 이전을 먼저 설계한 뒤 회원별 FK를 추가한다. 인증 제공자·비밀번호 방식은 미정이다.
-- PostGIS는 추후 근처 사용자 기능에 도입한다. 초기 문서의 매장 위치/재고 테이블을 사용자 위치 테이블로 재사용하지 않는다. 위치 데이터에는 만료·공유 범위를 둔다.
-- 기존 파일은 로컬 저장소를 유지할 수 있다. DB 이행 시 행 수·소유권·파일 참조·임베딩 차원을 확인한 뒤 API 저장소를 전환한다.
+- 표 이름·문자열 ID·열 순서는 SQLite와 같다. JSON 문자열은 JSONB, UTC 초와 ISO 시각은 TIMESTAMPTZ, 0/1 표시는 boolean으로 바꿨다. 정수 자동 번호는 identity로 바꿨다.
+- `catalog_embeddings`의 float32-le 바이트는 pgvector `vector`에 넣고, 차원은 `vector_dims(vector) = dimensions` 제약으로 확인한다. 차원 고정 열과 ANN 인덱스는 두지 않는다. 모델 revision·차원이 다른 벡터는 지금처럼 키로 구분한다.
+- SQLite의 `BEGIN IMMEDIATE`로 막던 동시 저장은 다이어리별 advisory lock과 에셋 행 잠금으로 바꿨다.
+- 남은 일: catalog/online/ingest 스키마 분리, 로그인 테이블과 방문자 소유권 이전 후 회원별 FK, 근처 사용자 기능의 PostGIS. 이번 전환에는 넣지 않았다.
 
 ## 이행과 확인 범위
 
-`python scripts/migrate_catalog.py`는 로컬 백업을 만들고 복사본에서 이행·재실행·기존 테이블 지문·무결성·외래 키를 확인한다. 두 서버를 멈춘 뒤 `--apply`로 실제 DB에 적용한다. 백업은 `data/backups/`에 남는다. 변경은 새 테이블/인덱스 추가와 기존 연결 보충이며 기존 테이블 삭제나 데이터 변환은 없다.
+`python scripts/migrate_postgres.py`는 `data/goodmorning.sqlite3`을 `data/backups/`에 백업한 뒤, 그 사본을 PostgreSQL에 한 트랜잭션으로 옮겨 보고 되돌린다(연습). 두 서버를 멈춘 뒤 `--apply`로 실제 이행한다. 진행 중인 작업이 있거나, 대상 PostgreSQL에 이미 자료가 있거나, 표별 행 수·임베딩 차원이 맞지 않으면 중단한다. 원본 SQLite 파일과 `data/` 아래 파일은 바꾸지 않는다. 이전의 SQLite 전용 `scripts/migrate_catalog.py`는 카탈로그 표가 PostgreSQL 스키마에 포함되면서 삭제했다.
 
 상품 수집·사진 검색·휴대폰 조작의 기능 검증은 사용자 진행 범위다. DB 구조 적용과 무결성 확인이 실제 판매처 수집 성공이나 검색 품질을 보장하지 않는다.

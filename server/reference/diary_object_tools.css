@@ -21,6 +21,7 @@
 }
 .object-toolbar button { min-height:32px; padding:5px 8px; border:0; border-radius:6px; color:#254752; background:#eef5f5; font:inherit; white-space:nowrap; }
 .object-toolbar button:hover { background:#dcebed; }
+.object-toolbar button:disabled { opacity:.4; cursor:default; background:#eef5f5; }
 .object-toolbar .object-apply { color:white; background:#315e69; }
 .object-rotation { display:flex; flex-basis:100%; align-items:center; justify-content:center; gap:3px; }
 .object-toolbar [hidden] { display:none; }
