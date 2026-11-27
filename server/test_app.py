@@ -158,3 +158,27 @@ def test_catalog_offers_vectors_and_links(client):
     with psycopg.connect(url) as db:
         row=db.execute("select l.offer_id, l.snapshot->>'title', vector_dims(e.vector) from asset_product_links l join catalog_embeddings e on e.offer_id=l.offer_id where l.asset_id='linked'").fetchone()
     assert row==(offer,'포치타 인형 키링',768)
+
+
+def test_admin_viewer_is_owner_only_and_read_only(client):
+    c,data,_=client
+    query=lambda sql,**kw: c.post('/api/admin/query',json={'sql':sql},**kw)
+    answer=query("SELECT name, kind FROM assets WHERE id='pochita'")
+    assert answer.status_code==200 and answer.json()['columns']==['name','kind'] and answer.json()['rows']==[['포치타','sticker']]
+    assert c.get('/api/admin/summary').json()['pgvector']
+    # Visitors connect with a guest token from the Pages app; they never see the shared tables.
+    remote={'Host':'preview.trycloudflare.com','cf-ray':'test'}
+    key=(data/'access.key').read_text()
+    from server.access import guest_token
+    guest={**remote,'Authorization':'Bearer '+guest_token(key)}
+    assert query('SELECT 1',headers=guest).status_code==403
+    assert c.get('/api/admin/summary',headers=guest).status_code==403
+    assert query('SELECT 1',headers=remote).status_code==401
+    assert query('SELECT 1',headers={**remote,'Authorization':'Bearer '+key}).status_code==200
+    for sql,message in [("DELETE FROM assets",'조회만'),("UPDATE assets SET name='x'",'조회만'),
+                        ("SELECT 1; DELETE FROM assets",'한 문장'),("COMMIT; DELETE FROM assets",'한 문장'),
+                        ("SELECT pg_read_file('/etc/hostname')",'조회 전용'),("SET ROLE goodmorning",''),
+                        ("SELECT pg_sleep(6)",'5초')]:
+        response=query(sql)
+        assert response.status_code==400 and message in response.json()['detail'], (sql,response.text)
+    assert query("SELECT count(*) AS n FROM assets").json()['rows'][0][0]>=3

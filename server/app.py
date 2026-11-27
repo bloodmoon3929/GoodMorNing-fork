@@ -21,7 +21,7 @@ from PIL import Image
 
 from .gpu import Segmenter
 from .stickers import generate, normalized_image
-from . import notebook, asset_trash
+from . import notebook, asset_trash, admin
 from .db import Jsonb, connection
 from .goods import api as goods_api
 from .goods import catalog
@@ -355,6 +355,7 @@ def file(ident: str, filename: str, request: Request):
 notebook.register(app, DATA, connection, accessible, normalized_image, now)
 goods_api.register(app, connection, uploaded_image)
 asset_trash.register(app, connection, accessible, asset_dict, now, SAMPLES)
+admin.register(app)
 
 app.mount('/scene', StaticFiles(directory=ROOT / 'server' / 'scene', html=True), name='scene')
 
@@ -369,6 +370,11 @@ def frontend(path: str):
         raise HTTPException(404)
     if target.is_file():
         return FileResponse(target)
+    # Static pages in their own folder (/admin/), served like GitHub Pages does.
+    if path and target.is_dir() and (target / 'index.html').is_file():
+        if not path.endswith('/'):
+            return RedirectResponse(f'/{path}/', status_code=301)
+        return FileResponse(target / 'index.html', headers={'Cache-Control': 'no-cache'})
     if not path or '.' not in Path(path).name:
         if (root / 'index.html').exists():
             return FileResponse(root / 'index.html', headers={'Cache-Control': 'no-cache'})
