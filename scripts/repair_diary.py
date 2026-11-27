@@ -24,6 +24,12 @@ def repair(html):
     replace("  view.node.style.setProperty('--placement-angle', `${item.rotation ?? 0}deg`);",
             "  view.node.style.setProperty('--placement-angle', `${item.rotation ?? 0}deg`);\n  diaryObjectEditor?.sync();")
     replace('function renderDiary() {\n  if (!demo) return;', 'function renderDiary() {\n  if (!demo) return;\n  diaryObjectEditor?.sync();')
+    replace('  const photos = draftDiary ?? diaryPhotos;\n  photos.forEach((photo, index) => {',
+            '  const photos = draftDiary ?? diaryPhotos;\n  const photoLayers = new Map(diaryPhotoStack(photos).map(({index}, rank) => [index, rank + 1]));\n  photos.forEach((photo, index) => {')
+    replace('    card.dataset.photoIndex = index;',
+            "    card.dataset.photoIndex = index;\n    card.style.zIndex = String(photoLayers.get(index) ?? 0);")
+    replace("  picker.addEventListener('change', () => {\n    selectedDiaryPhoto = Number(picker.value);\n    syncDiaryControls();\n    renderDiary();\n  });",
+            "  picker.addEventListener('change', () => {\n    selectedDiaryPhoto = Number(picker.value);\n    syncDiaryControls();\n    renderDiary();\n    diaryObjectEditor?.selectPhoto(selectedDiaryPhoto);\n  });")
     replace('  diary.inert = layers.inert = !diaryOpen;', '  diary.inert = layers.inert = !diaryOpen;\n  if (!diaryOpen) diaryObjectEditor?.reset();')
     replace("  if (!draft || saving || event.button !== 0) return;\n  if (placement)",
             "  if (!draft || saving || event.button !== 0 || event.target.closest('input,textarea,button,a,select')) return;\n  if (placement)")

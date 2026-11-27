@@ -16,7 +16,8 @@
 .solid-diary .diary-content-plane > #layers {
   z-index: 2; transform: none; transform-style: flat; isolation: isolate;
 }
-/* Each photo stays in the paper's stacking context, even when selected.
+/* Per-photo z-index orders polaroids only inside the paper's stacking context,
+   even when selected or moved forward; the entire sticker plane stays above it.
    Canvas filters and relief rendering cannot interleave with the photo plane. */
 .solid-diary .diary-content-plane > .diary { transform-style: flat; isolation: isolate; }
 .solid-diary .diary-content-plane #layers .model { transform-style: flat; isolation: isolate; }
