@@ -42,6 +42,8 @@ def test_photo_to_gaussian_glb_and_saved_diary(client):
     assert manifest['materials'][0]['extensions']['KHR_materials_clearcoat']['clearcoatFactor']==1
     assert c.get(f'/files/{ident}/sticker.ply').content.startswith(b'ply\n')
     metadata=c.get(f'/files/{ident}/sticker.json').json()
+    # The test data folder has no depth model, so the silhouette relief is used and recorded.
+    assert metadata['depth']=='silhouette-distance'
     assert metadata['gaussians']['count']>100
     assert metadata['max_height_mm']>0
     diary={'id':'persistent','title':'나의 기록','note':'hello','date':'2026-11-26','paper':'#fff9eb','placements':[
@@ -78,3 +80,16 @@ def test_remote_access_key_required(client):
     key=(data/'access.key').read_text()
     assert c.post('/auth/login',headers=remote,json={'key':key}).status_code==200
     assert c.get('/api/assets',headers=remote).status_code==200
+
+
+def test_yolo_depth_relief(tmp_path):
+    from pathlib import Path
+    from server.depth import DepthEstimator
+    from server.stickers import generate
+    estimator=DepthEstimator(Path(__file__).resolve().parent.parent/'data'/'models'/'yolo-depth')
+    if not estimator.ready():
+        pytest.skip('Run scripts/setup_models.py to download yolo26n-depth.onnx.')
+    (tmp_path/'source.png').write_bytes(photo())
+    info=generate(tmp_path/'source.png',tmp_path,None,{'name':'depth','background':'auto','box':None},lambda *a:None,estimator)
+    assert info['depth'].startswith('yolo26n-depth-')
+    assert 0<info['max_height_mm']<15
