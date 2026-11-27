@@ -7,12 +7,15 @@ import time
 import uuid
 import httpx
 from fastapi import Request, UploadFile, File, Form, HTTPException
+from ..db import Jsonb
 from .config import DATA, GUIDANCE, product_url
 
+DAY = "now() - interval '1 day'"
+
 def initialize(con):
-    con.execute('CREATE TABLE IF NOT EXISTS goods_searches(id TEXT PRIMARY KEY, owner TEXT NOT NULL, state TEXT NOT NULL, body TEXT NOT NULL, created REAL NOT NULL)')
-    con.execute("UPDATE goods_searches SET state='failed',body=? WHERE state='running'",(json.dumps({'message':'서버가 재시작됐어요. 다시 검색해 주세요.'}),))
-    con.execute('DELETE FROM goods_searches WHERE created<?',(time.time()-86400,))
+    # goods_searches is created from server/schema.sql.
+    con.execute("UPDATE goods_searches SET state='failed',body=%s WHERE state='running'",(Jsonb({'message':'서버가 재시작됐어요. 다시 검색해 주세요.'}),))
+    con.execute(f'DELETE FROM goods_searches WHERE created<{DAY}')
 
 def selection(con,owner,search_id,candidate_id,manual_url,manual_title):
     if manual_url:
@@ -22,9 +25,9 @@ def selection(con,owner,search_id,candidate_id,manual_url,manual_title):
         return {'title':manual_title.strip() or '직접 연결한 굿즈','url':url,'source':'직접 연결',
                 'confirmed_by_user':True,'match_method':'manual','confirmed_at':int(time.time())}
     if not search_id and not candidate_id:return None
-    row=con.execute("SELECT * FROM goods_searches WHERE id=? AND owner=? AND state='completed'",(search_id,owner)).fetchone()
-    if not row or time.time()-row['created']>86400:raise HTTPException(422,'검색 결과가 만료됐어요. 다시 검색해 주세요.')
-    item=next((p for p in json.loads(row['body']).get('items',[]) if p['id']==candidate_id),None)
+    row=con.execute(f"SELECT * FROM goods_searches WHERE id=%s AND owner=%s AND state='completed' AND created>={DAY}",(search_id,owner)).fetchone()
+    if not row:raise HTTPException(422,'검색 결과가 만료됐어요. 다시 검색해 주세요.')
+    item=next((p for p in row['body'].get('items',[]) if p['id']==candidate_id),None)
     if not item:raise HTTPException(422,'추천 목록에서 상품을 다시 선택해 주세요.')
     return {**{k:v for k,v in item.items() if k not in ('image_data','similarity')},
             'confirmed_by_user':True,'match_method':'user_selected_recommendation','confirmed_at':int(time.time())}
@@ -44,7 +47,7 @@ def register(app,connection,uploaded_image):
             body={'message':'상품 검색 서버에 연결하지 못했어요. 잠시 후 다시 시도하거나 링크를 직접 연결해 주세요.'};state='failed'
         finally:gate.release()
         body['guidance']=GUIDANCE
-        with connection() as con:con.execute('UPDATE goods_searches SET state=?,body=? WHERE id=?',(state,json.dumps(body,ensure_ascii=False),ident))
+        with connection() as con:con.execute('UPDATE goods_searches SET state=%s,body=%s WHERE id=%s',(state,Jsonb(body),ident))
 
     @app.post('/api/goods/searches',status_code=202)
     async def begin(request:Request,photo:UploadFile=File(),query:str=Form(min_length=1,max_length=80),box:str=Form('[0,0,1,1]')):
@@ -60,16 +63,16 @@ def register(app,connection,uploaded_image):
         ident=uuid.uuid4().hex
         try:
             with connection() as con:
-                active=con.execute("SELECT id FROM goods_searches WHERE owner=? AND state='running'",(request.state.owner,)).fetchone()
+                active=con.execute("SELECT id FROM goods_searches WHERE owner=%s AND state='running'",(request.state.owner,)).fetchone()
                 if active:raise HTTPException(429,'이전에 올린 사진을 검색 중이에요. 결과를 기다려 주세요.')
-                con.execute('DELETE FROM goods_searches WHERE created<?',(time.time()-86400,))
-                con.execute('INSERT INTO goods_searches VALUES(?,?,?,?,?)',(ident,request.state.owner,'running','{}',time.time()))
+                con.execute(f'DELETE FROM goods_searches WHERE created<{DAY}')
+                con.execute('INSERT INTO goods_searches VALUES(%s,%s,%s,%s,now())',(ident,request.state.owner,'running',Jsonb({})))
             threading.Thread(target=run,args=(ident,base64.b64encode(output.getvalue()).decode(),query.strip()),daemon=True).start()
         except Exception:gate.release();raise
         return {'id':ident,'state':'running'}
 
     @app.get('/api/goods/searches/{ident}')
     def result(ident:str,request:Request):
-        with connection() as con:row=con.execute('SELECT * FROM goods_searches WHERE id=? AND owner=?',(ident,request.state.owner)).fetchone()
+        with connection() as con:row=con.execute('SELECT * FROM goods_searches WHERE id=%s AND owner=%s',(ident,request.state.owner)).fetchone()
         if not row:raise HTTPException(404,'검색 결과를 찾지 못했어요.')
-        return {'id':ident,'state':row['state'],**json.loads(row['body'])}
+        return {'id':ident,'state':row['state'],**row['body']}

@@ -4,18 +4,17 @@ import io
 import json
 import re
 import struct
+from functools import partial
 from fastapi import Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
+from .db import Jsonb
+
+strict_json = partial(json.dumps, ensure_ascii=False, allow_nan=False)
 
 
 def initialize(con, data):
+    # Tables are created from server/schema.sql.
     (data / 'notebook-files').mkdir(exist_ok=True)
-    con.executescript('''
-      CREATE TABLE IF NOT EXISTS notebook_pages(owner TEXT NOT NULL, page_key TEXT NOT NULL,
-        body TEXT NOT NULL, updated TEXT NOT NULL, PRIMARY KEY(owner,page_key));
-      CREATE TABLE IF NOT EXISTS notebook_files(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
-        name TEXT NOT NULL, mime TEXT NOT NULL);
-    ''')
 
 
 def register(app, data, connection, accessible, normalized_image, now):
@@ -27,15 +26,15 @@ def register(app, data, connection, accessible, normalized_image, now):
     def pages(request: Request):
         with connection() as con:
             return [row['page_key'] for row in con.execute(
-                'SELECT page_key FROM notebook_pages WHERE owner=?', (request.state.owner,))]
+                'SELECT page_key FROM notebook_pages WHERE owner=%s', (request.state.owner,))]
 
     @app.get('/api/notebook/pages/{key}')
     def read_page(key: str, request: Request):
         valid_key(key)
         with connection() as con:
-            row = con.execute('SELECT body FROM notebook_pages WHERE owner=? AND page_key=?',
+            row = con.execute('SELECT body FROM notebook_pages WHERE owner=%s AND page_key=%s',
                               (request.state.owner, key)).fetchone()
-        return json.loads(row['body']) if row else None
+        return row['body'] if row else None
 
     @app.put('/api/notebook/pages/{key}')
     async def save_page(key: str, request: Request):
@@ -59,13 +58,13 @@ def register(app, data, connection, accessible, normalized_image, now):
                     raise HTTPException(422, '페이지 구조가 너무 복잡해요.')
                 if isinstance(value, dict):
                     if '__gmFile' in value:
-                        row = con.execute('SELECT id FROM notebook_files WHERE id=? AND owner=?',
+                        row = con.execute('SELECT id FROM notebook_files WHERE id=%s AND owner=%s',
                                           (str(value['__gmFile']), request.state.owner)).fetchone()
                         if not row:
                             raise HTTPException(404, '첨부 사진을 찾지 못했어요.')
                     if '__gmAsset' in value:
                         ident = str(value['__gmAsset'])
-                        row = con.execute('SELECT id FROM assets WHERE id=?', (ident,)).fetchone()
+                        row = con.execute('SELECT id FROM assets WHERE id=%s', (ident,)).fetchone()
                         if not row or not accessible(con, 'asset', ident, request.state.owner):
                             raise HTTPException(404, '스티커를 찾지 못했어요.')
                         if value.get('part') not in ('model', 'thumbnail'):
@@ -76,8 +75,8 @@ def register(app, data, connection, accessible, normalized_image, now):
                     for child in value:
                         validate(child, depth + 1)
             validate(body)
-            con.execute('INSERT INTO notebook_pages VALUES(?,?,?,?) ON CONFLICT(owner,page_key) DO UPDATE SET body=excluded.body,updated=excluded.updated',
-                        (request.state.owner, key, json.dumps(body, ensure_ascii=False, allow_nan=False), now()))
+            con.execute('INSERT INTO notebook_pages VALUES(%s,%s,%s,%s) ON CONFLICT(owner,page_key) DO UPDATE SET body=excluded.body,updated=excluded.updated',
+                        (request.state.owner, key, Jsonb(body, dumps=strict_json), now()))
         return {'saved': True}
 
     @app.post('/api/notebook/files', status_code=201)
@@ -102,7 +101,7 @@ def register(app, data, connection, accessible, normalized_image, now):
         ident = hashlib.sha256(request.state.owner.encode() + b'\0' + content).hexdigest()
         (data / 'notebook-files' / ident).write_bytes(content)
         with connection() as con:
-            con.execute('INSERT OR IGNORE INTO notebook_files VALUES(?,?,?,?)',
+            con.execute('INSERT INTO notebook_files VALUES(%s,%s,%s,%s) ON CONFLICT DO NOTHING',
                         (ident, request.state.owner, name, mime))
         return {'__gmFile': ident, 'name': name, 'type': mime}
 
@@ -111,7 +110,7 @@ def register(app, data, connection, accessible, normalized_image, now):
         if not re.fullmatch(r'[a-f0-9]{64}', ident):
             raise HTTPException(404)
         with connection() as con:
-            row = con.execute('SELECT * FROM notebook_files WHERE id=? AND owner=?',
+            row = con.execute('SELECT * FROM notebook_files WHERE id=%s AND owner=%s',
                               (ident, request.state.owner)).fetchone()
         if not row:
             raise HTTPException(404)
