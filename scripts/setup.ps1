@@ -17,6 +17,7 @@ if(-not(Test-Path -LiteralPath '.venv\Scripts\python.exe')){
 }
 & .\.venv\Scripts\python.exe -m pip install -r server\requirements-windows-lock.txt
 if($LASTEXITCODE -ne 0){throw 'Python dependencies failed.'}
+& .\scripts\setup-postgres.ps1
 & .\.venv\Scripts\python.exe scripts\setup_models.py
 if($LASTEXITCODE -ne 0){throw 'SAM 2 model download failed.'}
 & .\scripts\build.ps1

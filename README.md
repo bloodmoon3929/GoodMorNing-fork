@@ -38,7 +38,7 @@
 
 ## 다이어리와 스티커 기능
 
-상품 데이터는 PC의 SQLite에 지속적으로 저장합니다. 판매처별 상품 후보·가격 관측 기록·수집 작업·상품 이미지·모델 버전별 임베딩과 개인 에셋 연결을 분리했습니다. 수집 실패 시 과거 상품도 다시 비교하며, 화면에는 수집 날짜를 표시합니다. 기존 에셋·다이어리 데이터는 유지합니다. [현재 DB 구조와 PostgreSQL 전환 계획](docs/database.md), 실행 스키마는 `server/goods/catalog.sql`을 참고하세요.
+상품 데이터는 PC의 PostgreSQL(Docker)에 지속적으로 저장합니다. 판매처별 상품 후보·가격 관측 기록·수집 작업·상품 이미지·모델 버전별 임베딩과 개인 에셋 연결을 분리했습니다. 수집 실패 시 과거 상품도 다시 비교하며, 화면에는 수집 날짜를 표시합니다. 기존 에셋·다이어리 데이터는 유지합니다. [현재 DB 구조](docs/database.md), 실행 스키마는 `server/schema.sql`·`server/goods/catalog.sql`을 참고하세요.
 
 - **편집 → 개체 선택 → 모서리 드래그**로 사진·스티커 크기를 조절합니다. 위 툴바의 **회전**을 누르면 툴바가 **적용 / 취소**로 바뀌고 네 모서리가 회전 핸들로 전환됩니다. 회전 커서가 표시된 모서리를 드래그하면 개체 중심을 기준으로 자유롭게 돌아가며, **적용**하면 각도를 유지합니다. **취소**, Escape 또는 다른 개체 선택 시 회전 전 각도로 돌아갑니다. 회전 모드에서 모서리에 초점을 두고 방향키로도 조절할 수 있습니다.
 - 폴라로이드 툴바의 **앞으로 / 뒤로**는 사진끼리 한 단계씩 순서를 바꿉니다. 끝에 도달한 방향은 비활성화되며, 완전히 가려진 사진은 사진 선택 목록에서 고를 수 있습니다. 사진의 순서는 게시할 때 저장되고 편집 취소 시 되돌아갑니다. **스티커는 모든 폴라로이드보다 위에 유지**되며, 사진 순서 변경은 스티커 레이어에 영향을 주지 않습니다.
@@ -62,7 +62,7 @@
 - 다이어리에 스티커와 폴라로이드 추가, 끌어서 이동, 크기·회전·순서 조절, 선택 항목 제거
 - 다이어리 탭은 원본 바인더 편집기를 사용합니다. 사진 메모·테이프·사진 추가/교체, 스티커 이동·크기·회전, 새 장 추가, 표지와 링 조작을 원본 UI에서 제공합니다. 이전 별도 편집기의 제목/메모/종이 색/PNG 내보내기 도구는 현재 화면에 노출하지 않습니다.
 - **편집 → 게시**로 사진·테이프·에셋 배치를 PC의 `notebook_pages`에 저장합니다. 사진과 가져온 GLB는 별도 첨부 파일로 저장하며, GPU에서 만든 에셋은 기존 파일을 참조합니다. 저장 실패 시 편집 내용을 유지합니다. 원본의 페이지당 에셋 6개 제한을 유지하며 새 장에 추가할 수 있습니다.
-- SQLite에 에셋·생성 작업·다이어리 저장. 새로고침 후 다시 불러오기
+- PostgreSQL에 에셋·생성 작업·다이어리 저장. 새로고침 후 다시 불러오기
 - GitHub Pages 정적 프론트 + 접근 키로 보호된 로컬 GPU API. 같은 PC에서 앱/API를 함께 제공하는 방식도 유지
 
 ## GitHub Pages + 로컬 GPU 연결
@@ -91,7 +91,7 @@ flowchart LR
   D --> F[유광 GLB + PNG]
   F --> G[에셋 보관함]
   G --> H[Flutter 입체 다이어리]
-  H --> I[SQLite 자동 저장]
+  H --> I[PostgreSQL 자동 저장]
 ```
 
 **SAM 3D는 새 스티커 생성에 사용하지 않습니다.** 현재 사진 한 장의 보이는 면과 윤곽에서 높이를 만드는 **2.5D Gaussian relief** 구현입니다. 여러 시점의 사진으로 최적화하는 3D Gaussian Splatting 학습이나 보이지 않는 뒷면의 3D 복원은 포함하지 않습니다. 가우시안 표현은 PLY/SPLAT로 저장하며, 다이어리에서는 같은 표면을 GLB 메시로 베이크해 유광 반사를 표시합니다. 원본 저장소에서 가져온 기본 스티커 3개는 미리 생성된 샘플이며 출처는 메타데이터에 구분됩니다.
@@ -115,12 +115,16 @@ GoodMorNing/
 │  │  └─ studio_dialog.dart   모달 아래 HTML 화면의 터치 차단
 │  ├─ assets/wordmark.png      원본 프로토타입 워드마크
 │  ├─ web/                    웹 진입점·아이콘·manifest
+│  │  ├─ admin/               주소로만 여는 DB 조회 화면 (/admin)
 │  │  ├─ reference/           빌드 때 원본 소스·폰트·샘플 복사 (Git 제외)
 │  │  └─ scene/               빌드 때 입체 렌더러 복사 (Git 제외)
 │  ├─ test/                   API 응답 처리 테스트
 │  └─ pubspec.yaml
 ├─ server/
-│  ├─ app.py                  FastAPI, 작업 큐, SQLite, 파일 제공
+│  ├─ app.py                  FastAPI, 작업 큐, 파일 제공
+│  ├─ db.py                   PostgreSQL 연결 풀·표 생성·조회 전용 계정
+│  ├─ schema.sql              앱 표(에셋·작업·다이어리·페이지·휴지통·검색) 명세
+│  ├─ admin.py                /admin 조회 API (소유자 전용·읽기 전용)
 │  ├─ gpu.py                  GPU 선택·SAM 2 encoder/decoder 추론
 │  ├─ stickers.py             누끼 → 볼록 스티커 생성
 │  ├─ gaussian.py             Gaussian 표면·PLY/SPLAT 내보내기
@@ -140,6 +144,8 @@ GoodMorNing/
 │  └─ requirements-windows-lock.txt
 ├─ scripts/
 │  ├─ setup.ps1               새 PC에서 환경 구성
+│  ├─ setup-postgres.ps1       Docker로 PostgreSQL 17 + pgvector 준비
+│  ├─ migrate_postgres.py      예전 SQLite 데이터를 PostgreSQL로 이행
 │  ├─ setup_models.py         고정 버전 SAM 2 ONNX 모델 다운로드
 │  ├─ setup-search.ps1         검색 환경·모델·Chromium 설치
 │  ├─ start-search.ps1         내부 전용 상품 검색 서버 실행
@@ -157,7 +163,8 @@ GoodMorNing/
 ├─ prototype/                 프로토타입 Git submodule
 ├─ sticker-engine/            goodmorning-3d Git submodule
 ├─ data/                      로컬 전용, Git 제외
-│  ├─ goodmorning.sqlite3      에셋·작업·다이어리 DB
+│  ├─ postgres.key            PostgreSQL 비밀번호 (DB 자료는 Docker 볼륨 goodmorning-pgdata)
+│  ├─ backups/                SQLite 이행 전 백업
 │  ├─ assets/<id>/             원본 사진, 스티커, 메타데이터
 │  ├─ notebook-files/         다이어리 첨부 사진·GLB (소유자별 접근)
 │  ├─ models/sam2/             SAM 2 ONNX 모델 약 155MB
@@ -196,7 +203,7 @@ PC 안에서: **http://127.0.0.1:8787**
 
 ## 새 PC에서 설치
 
-Git과 Python 3.12가 필요합니다. Windows DirectX 12 GPU에서는 DirectML을 사용하며, DirectML이 없는 환경에서는 CPU provider를 사용할 수 있습니다. 기본 설치 스크립트와 lock 파일은 Windows용입니다.
+Git, Python 3.12, Docker Desktop이 필요합니다. Windows DirectX 12 GPU에서는 DirectML을 사용하며, DirectML이 없는 환경에서는 CPU provider를 사용할 수 있습니다. 기본 설치 스크립트와 lock 파일은 Windows용입니다.
 
 ```powershell
 git clone --recurse-submodules https://github.com/niraaah/GoodMorNing.git
@@ -206,6 +213,28 @@ cd GoodMorNing
 ```
 
 원본 저장소는 submodule로 고정되어 있습니다. 모델·SDK·사용자 사진·DB는 GitHub에 올리지 않으며, setup 과정에서 필요한 SDK와 모델을 받습니다. 모델 버전과 다운로드 파일의 해시는 `data/models/sam2/manifest.json`에 기록됩니다.
+
+## PostgreSQL (Docker)
+
+DB는 이 PC의 Docker 컨테이너 `goodmorning-postgres`(이미지 `pgvector/pgvector:0.8.7-pg17`)에서 실행합니다. API 서버와 상품 검색 서버가 같은 DB를 사용하며, 포트는 `127.0.0.1:55432`로 PC 안에서만 열립니다. 자료는 Docker 볼륨 `goodmorning-pgdata`에, 생성된 비밀번호는 `data/postgres.key`에만 저장합니다. 사진·스티커·첨부·상품 이미지 파일은 지금처럼 `data/` 폴더에 두고 DB에는 경로를 저장합니다.
+
+```powershell
+.\scripts\setup-postgres.ps1                     # 처음 한 번: 컨테이너·표 생성 (setup.ps1에 포함)
+.\scripts\stop.ps1                               # 예전 SQLite 데이터가 있으면 서버를 멈추고
+.\.venv\Scripts\python.exe scripts\migrate_postgres.py          # 이행 연습 (아무것도 쓰지 않음)
+.\.venv\Scripts\python.exe scripts\migrate_postgres.py --apply  # 실제 이행
+.\scripts\start.ps1                              # 컨테이너가 꺼져 있으면 함께 켭니다
+```
+
+이행은 `data/goodmorning.sqlite3`을 읽기만 합니다. `data/backups/`에 백업을 만든 뒤 표마다 행 수를 확인합니다. 하나라도 맞지 않으면 전체를 되돌립니다. 이미 자료가 있는 PostgreSQL에는 이행하지 않습니다. 시간은 TIMESTAMPTZ, JSON은 JSONB, 상품 임베딩은 pgvector `vector`로 바뀌며 API 응답은 이전과 같습니다.
+
+### DB 조회 (/admin)
+
+앱에는 버튼이 없고 주소를 직접 입력해야 열립니다. PC에서는 `http://127.0.0.1:8787/admin`, Pages에서는 `https://niraaah.github.io/GoodMorNing/admin`입니다. Pages에서는 PC 서버 주소와 소유자 접근 키를 입력합니다. 키는 그 탭에만 보관합니다.
+
+- 모든 방문자의 자료가 들어 있으므로 소유자 접근 키(또는 PC 안의 요청)만 조회할 수 있습니다. 방문자 연결은 403입니다.
+- 조회는 SELECT 권한만 있는 `goodmorning_reader` 계정으로, 읽기 전용 트랜잭션에서 한 문장씩, 5초·300행 제한으로 실행합니다. 바꾸는 문장, 여러 문장, 서버 파일 읽기는 막힙니다.
+- 표별 행 수, 에셋(미리보기·소유자·연결한 굿즈), 소유자별 개수, 스티커 작업, 다이어리 페이지, 굿즈 후보, 임베딩, 에셋-상품 연결, 표 구조를 바로 볼 수 있고, 결과는 CSV로 내려받을 수 있습니다.
 
 ## 휴대폰·외부에서 접속
 
@@ -254,6 +283,8 @@ cd GoodMorNing
 | `PUT /api/diaries/{id}` | 다이어리와 배치 저장 |
 | `GET /files/{id}/sticker.glb` | 입체 스티커 |
 | `GET /files/{id}/sticker.ply` | Gaussian PLY |
+| `GET /api/admin/summary` | 소유자 전용: 표별 행 수·PostgreSQL/pgvector 버전·DB 크기 |
+| `POST /api/admin/query` | 소유자 전용: `sql` 한 문장을 읽기 전용으로 실행 (300행·5초 제한) |
 
 `box`는 `[left, top, right, bottom]` JSON 문자열이며 각 좌표는 0~1입니다. 사진 크기는 최대 16MB, 2,400만 화소이고 처리용으로 축소됩니다. 생성은 GPU 작업 한 개씩 순차 처리합니다.
 
@@ -266,6 +297,8 @@ cd GoodMorNing
 - Flutter 분석에는 스타일 관련 info가 남아 있습니다. 웹 브라우저에서의 최종 조작·시각 검증은 사용자가 직접 진행할 예정이며 완료로 표시하지 않습니다.
 - 사용자 요청에 따라 추가 자동 테스트는 중단했습니다. 제공한 확인 스크립트는 필요할 때 직접 실행할 수 있습니다.
 - 샘플 생성 확인 스크립트는 실제 에셋과 다이어리 데이터를 추가합니다.
+
+서버 테스트는 Docker PostgreSQL에 테스트마다 임시 DB를 만들었다가 지웁니다. 다른 PostgreSQL을 쓰려면 `GOODMORNING_TEST_DATABASE_URL`을 지정합니다. 둘 다 없으면 건너뜁니다.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest server\test_app.py -q

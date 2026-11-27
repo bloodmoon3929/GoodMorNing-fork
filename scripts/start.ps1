@@ -7,6 +7,9 @@ if (-not (Test-Path -LiteralPath $pythonPath)) { throw 'Python environment missi
 if (-not (Test-Path -LiteralPath 'app\build\web\index.html')) { Write-Output 'Starting API only. Use the GitHub Pages frontend, or run scripts\build.ps1 for local UI.' }
 $logsPath = Join-Path $projectRoot 'logs'
 New-Item -ItemType Directory -Path $logsPath -Force | Out-Null
+# Both servers use PostgreSQL in Docker (scripts\setup-postgres.ps1).
+docker start goodmorning-postgres | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL is not available. Start Docker Desktop, then run scripts\setup-postgres.ps1.' }
 & (Join-Path $PSScriptRoot 'start-search.ps1')
 if ($Foreground) {
   & $pythonPath -m uvicorn server.app:app --host 127.0.0.1 --port $Port
