@@ -41,9 +41,10 @@ def test_photo_to_gaussian_glb_and_saved_diary(client):
     manifest=json.loads(glb[20:20+length])
     assert manifest['materials'][0]['extensions']['KHR_materials_clearcoat']['clearcoatFactor']==1
     assert c.get(f'/files/{ident}/sticker.ply').content.startswith(b'ply\n')
+    assert c.get(f'/files/{ident}/process.jpg').content.startswith(b'\xff\xd8')
     metadata=c.get(f'/files/{ident}/sticker.json').json()
     # The test data folder has no depth model, so the silhouette relief is used and recorded.
-    assert metadata['depth']=='silhouette-distance'
+    assert metadata['depth']=='silhouette-distance' and '3_depth' not in metadata['process']['stages']
     assert metadata['gaussians']['count']>100
     assert metadata['max_height_mm']>0
     diary={'id':'persistent','title':'나의 기록','note':'hello','date':'2026-11-26','paper':'#fff9eb','placements':[
@@ -82,7 +83,7 @@ def test_remote_access_key_required(client):
     assert c.get('/api/assets',headers=remote).status_code==200
 
 
-def test_yolo_depth_relief(tmp_path):
+def test_yolo_depth_relief_and_process_record(tmp_path):
     from pathlib import Path
     from server.depth import DepthEstimator
     from server.stickers import generate
@@ -92,4 +93,6 @@ def test_yolo_depth_relief(tmp_path):
     (tmp_path/'source.png').write_bytes(photo())
     info=generate(tmp_path/'source.png',tmp_path,None,{'name':'depth','background':'auto','box':None},lambda *a:None,estimator)
     assert info['depth'].startswith('yolo26n-depth-')
-    assert 0<info['max_height_mm']<15
+    assert info['process']['stages']==['1_photo','2_segment','3_depth','4_height','5_sticker']
+    assert all((tmp_path/'process'/f'{name}.jpg').is_file() for name in info['process']['stages'])
+    assert (tmp_path/'process.jpg').is_file() and 0<info['max_height_mm']<15

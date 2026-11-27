@@ -361,7 +361,7 @@ def save_diary(ident: str, diary: Diary, request: Request):
 
 @app.get('/files/{ident}/{filename}')
 def file(ident: str, filename: str, request: Request):
-    if filename not in ('sticker.glb', 'sticker.png', 'sticker.json', 'sticker.ply', 'sticker.splat') or not ident.replace('_', '').replace('-', '').isalnum():
+    if filename not in ('sticker.glb', 'sticker.png', 'sticker.json', 'sticker.ply', 'sticker.splat', 'process.jpg') or not ident.replace('_', '').replace('-', '').isalnum():
         raise HTTPException(404)
     with connection() as con:
         if not accessible(con, 'asset', ident, request.state.owner):
