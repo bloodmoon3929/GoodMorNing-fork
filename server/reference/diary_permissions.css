@@ -1,0 +1,10 @@
+.motion-permission-intro {
+  margin: 8px 0 16px; padding: 16px; border: 1px solid #bed1d5;
+  border-radius: 12px; background: #f4fafb; color: #294952;
+}
+.motion-permission-intro h2 { margin:0 0 8px; font-size:16px; line-height:1.5; }
+.motion-permission-intro p { margin:0 0 12px; font-size:13px; line-height:1.7; }
+.motion-permission-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.motion-permission-actions .button { min-height:44px; }
+.motion-permission-actions .primary { background:#315d68; border-color:#315d68; color:#fff; }
+.reading-mode .motion-permission-intro { display:none; }

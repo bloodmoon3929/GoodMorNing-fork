@@ -12,6 +12,7 @@ def adapt(html):
     reference = Path(__file__).resolve().parent.parent / 'server/reference'
     photos = (reference / 'diary_photos.js').read_text(encoding='utf-8')
     photo_css = (reference / 'diary_photos.css').read_text(encoding='utf-8')
+    photo_css += '\n' + (reference / 'diary_permissions.css').read_text(encoding='utf-8')
     html = html.replace('</head>', '<style>' + photo_css + '</style>\n</head>', 1)
     html = html.replace('const homeLayoutVersion = 3;', photos + '\nconst homeLayoutVersion = 3;', 1)
     html = html.replace("    caption.textContent = photo.caption ?? (index === storyIndex && !newDiaryPage ? story.title : '');\n    caption.title = caption.textContent;", "    renderPolaroidCaption(card, photo, index, blank);")

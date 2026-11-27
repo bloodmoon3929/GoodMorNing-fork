@@ -9,7 +9,32 @@ if (mountedBoard && demo) (() => {
   manual.hidden = true; manual.disabled = true;
   gyro.after(manual);
   const Orientation = window.DeviceOrientationEvent;
-  let state = 'checking', enabled = true, origin = null, hasSensor = false;
+  const preferenceKey = 'goodmorning-motion-choice-v1';
+  let preference = null;
+  try {
+    const saved = localStorage.getItem(preferenceKey);
+    if (['on','off','later','denied'].includes(saved)) preference = saved;
+  } catch {}
+  function remember(value) {
+    preference = value;
+    try { localStorage.setItem(preferenceKey, value); } catch {}
+  }
+  // This is an app preference, never proof that the browser granted permission.
+  const intro = document.createElement('section');
+  intro.className = 'motion-permission-intro'; intro.hidden = true;
+  intro.setAttribute('aria-labelledby', 'motion-permission-title');
+  const title = document.createElement('h2'); title.id = 'motion-permission-title';
+  title.textContent = '휴대폰을 기울여 스티커를 반짝이게 해 볼까요?';
+  const description = document.createElement('p');
+  description.textContent = '동작 센서로 스티커의 빛 반사를 움직여요. 센서 값은 화면 효과에만 사용하며 서버로 보내거나 저장하지 않아요. 지금 켜지 않아도 다이어리를 꾸밀 수 있어요.';
+  const actions = document.createElement('div'); actions.className = 'motion-permission-actions';
+  const allow = document.createElement('button'); allow.type = 'button'; allow.className = 'button primary';
+  allow.textContent = '반짝임 켜기';
+  const later = document.createElement('button'); later.type = 'button'; later.className = 'button'; later.textContent = '나중에';
+  actions.append(allow,later); intro.append(title,description,actions);
+  document.getElementById('post-view').before(intro);
+  let state = 'idle', enabled = false, origin = null, hasSensor = false;
+  let requesting = false, attempt = 0;
   let targetX = 0, targetY = 0, lightX = 0, lightY = 0;
   let manualOn = false, manualX = 0, manualY = 0, drag = null;
   let frame = null, timer = null, disposed = false;
@@ -20,8 +45,9 @@ if (mountedBoard && demo) (() => {
     manual.hidden = state !== 'unavailable';
     manual.setAttribute('aria-pressed', String(manualOn));
     gyro.hidden = state === 'unavailable';
-    gyro.textContent = state === 'active' && enabled ? '반짝임 켜짐' : '자이로 켜기';
-    gyro.title = '휴대폰 기울기로 스티커 반짝임 조절';
+    gyro.disabled = requesting; allow.disabled = requesting; later.disabled = requesting;
+    gyro.textContent = enabled && ['active','checking'].includes(state) ? '반짝임 끄기' : state === 'denied' ? '권한 확인' : '자이로 켜기';
+    gyro.title = enabled ? '스티커 반짝임 움직임 끄기' : '휴대폰 기울기로 스티커 반짝임 켜기';
     gyro.setAttribute('aria-label', gyro.title);
     gyro.setAttribute('aria-pressed', String(state === 'active' && enabled));
     board.style.touchAction = manualOn ? 'none' : '';
@@ -62,7 +88,7 @@ if (mountedBoard && demo) (() => {
   }
   function armTimeout() { clearTimeout(timer); timer = setTimeout(unavailable, 6000); }
   function move(event) {
-    if (disposed || document.hidden || !Number.isFinite(event.beta) || !Number.isFinite(event.gamma)) return;
+    if (disposed || !enabled || document.hidden || !Number.isFinite(event.beta) || !Number.isFinite(event.gamma)) return;
     const justConnected = !hasSensor || state !== 'active';
     hasSensor = true; clearTimeout(timer); state = 'active';
     if (manualOn) stopManual();
@@ -85,26 +111,56 @@ if (mountedBoard && demo) (() => {
   }
   function denied() {
     state = 'denied'; enabled = false; clearTimeout(timer); stopManual();
-    message('센서 접근이 허용되지 않았어요. 브라우저에서 동작 센서 권한을 허용해 주세요.');
+    window.removeEventListener('deviceorientation',move);
+    targetX = targetY = 0; scheduleBoard(); remember('denied'); intro.hidden = true;
+    message('동작 센서가 허용되지 않았어요. 다이어리는 그대로 사용할 수 있어요. 켜려면 브라우저 사이트 설정에서 센서를 허용한 뒤 ‘권한 확인’을 눌러 주세요.');
   }
   async function begin(fromClick = false) {
-    if (!Orientation || !window.isSecureContext) { unavailable(); return; }
-    if (typeof Orientation.requestPermission === 'function') {
-      if (!fromClick) { state = 'permission'; updateControls(); message('자이로 켜기를 눌러 동작 센서를 허용해 주세요.'); return; }
-      try { if (await Orientation.requestPermission() !== 'granted') { denied(); return; } }
-      catch { denied(); return; }
+    if (disposed || requesting) return;
+    if (!window.isSecureContext) {
+      state = 'insecure'; intro.hidden = true; updateControls();
+      message('동작 센서는 HTTPS 주소에서 사용할 수 있어요. 다이어리 꾸미기는 계속할 수 있어요.'); return;
     }
-    if (!await detectPermission()) { denied(); return; }
-    if (disposed) return;
-    state = hasSensor ? 'active' : 'checking'; enabled = true; origin = null;
-    stopManual(); window.addEventListener('deviceorientation', move);
-    message(hasSensor ? '휴대폰을 기울이면 스티커의 반짝임이 움직여요.' : '휴대폰 동작 센서를 확인하고 있어요.'); armTimeout();
+    if (!Orientation) { state = 'idle'; intro.hidden = true; unavailable(); return; }
+    if (typeof Orientation.requestPermission === 'function' && !fromClick) {
+      state = 'permission'; updateControls();
+      message('‘자이로 켜기’를 눌러 이 화면의 동작 센서 권한을 확인해 주세요.'); return;
+    }
+    const current = ++attempt; requesting = true; updateControls();
+    try {
+      // Keep this call before any await, directly inside the user's click turn.
+      if (typeof Orientation.requestPermission === 'function') {
+        const result = await Orientation.requestPermission();
+        if (disposed || current !== attempt) return;
+        if (result !== 'granted') { denied(); return; }
+      }
+      if (!await detectPermission()) {
+        if (!disposed && current === attempt) denied();
+        return;
+      }
+      if (disposed || current !== attempt) return;
+      remember('on'); intro.hidden = true;
+      state = hasSensor ? 'active' : 'checking'; enabled = true; origin = null;
+      stopManual(); window.addEventListener('deviceorientation', move);
+      message(hasSensor ? '휴대폰을 기울이면 스티커의 반짝임이 움직여요.' : '휴대폰 동작 센서를 확인하고 있어요.'); armTimeout();
+    } catch {
+      if (!disposed && current === attempt) denied();
+    } finally {
+      if (!disposed && current === attempt) { requesting = false; updateControls(); }
+    }
   }
+  function turnOff(choice) {
+    attempt++; requesting = false; enabled = false; state = 'idle';
+    clearTimeout(timer); window.removeEventListener('deviceorientation',move);
+    targetX = targetY = 0; origin = null; intro.hidden = true; remember(choice);
+    stopManual(); scheduleBoard();
+    message(choice === 'later' ? '나중에 위쪽 ‘자이로 켜기’를 누르면 반짝임을 켤 수 있어요.' : '반짝임 움직임을 껐어요. 위쪽 ‘자이로 켜기’로 다시 켤 수 있어요.');
+  }
+  allow.addEventListener('click', () => { void begin(true); });
+  later.addEventListener('click', () => { turnOff('later'); gyro.focus({preventScroll:true}); });
   gyro.addEventListener('click', () => {
-    if (state === 'active' && enabled) {
-      enabled = false; targetX = targetY = 0; updateControls(); scheduleBoard();
-      message('반짝임 움직임을 멈췄어요. 다시 켜면 현재 자세를 기준으로 움직여요.');
-    } else void begin(true);
+    if (enabled && ['active','checking'].includes(state)) turnOff('off');
+    else void begin(true);
   });
   manual.addEventListener('click', () => {
     if (state !== 'unavailable') return;
@@ -149,8 +205,14 @@ if (mountedBoard && demo) (() => {
     clearTimeout(timer); if(!document.hidden){rebase();if(state==='checking')armTimeout();}
   });
   window.addEventListener('pagehide',()=>{
-    disposed=true; clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener('deviceorientation',move);
+    disposed=true; attempt++; clearTimeout(timer); cancelAnimationFrame(frame); window.removeEventListener('deviceorientation',move);
     window.removeEventListener('orientationchange',rebase); screen.orientation?.removeEventListener('change',rebase);
   });
-  updateControls(); scheduleBoard(); void begin();
+  updateControls(); scheduleBoard();
+  if (!Orientation || !window.isSecureContext) void begin();
+  else if (preference === 'on') void begin();
+  else if (preference === 'denied') denied();
+  else if (preference) message('위쪽 ‘자이로 켜기’를 누르면 스티커 반짝임을 켤 수 있어요.');
+  else if (!visitingDiary) intro.hidden = false;
+  else message('위쪽 ‘자이로 켜기’로 스티커 반짝임을 체험할 수 있어요.');
 })();
