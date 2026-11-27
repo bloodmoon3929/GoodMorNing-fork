@@ -11,6 +11,9 @@
 .object-resize-handle.ne { left:100%; top:0; cursor:nesw-resize; }
 .object-resize-handle.sw { left:0; top:100%; cursor:nesw-resize; }
 .object-resize-handle.se { left:100%; top:100%; cursor:nwse-resize; }
+.is-rotating .object-resize-handle { cursor:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2232%22%20height%3D%2232%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22white%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M7%2012a10%2010%200%200%201%2018-2M25%204v6h-6M25%2020a10%2010%200%200%201-18%202M7%2028v-6h6%22%2F%3E%3C%2Fg%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23254752%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M7%2012a10%2010%200%200%201%2018-2M25%204v6h-6M25%2020a10%2010%200%200%201-18%202M7%2028v-6h6%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") 16 16, crosshair; }
+.is-rotating .object-resize-handle::after { content:'↻'; inset:3px; display:grid; place-items:center; border-radius:50%; color:#254752; font:18px/1 sans-serif; }
+.is-rotating .object-selection-frame { border-style:solid; }
 .object-toolbar {
   position:absolute; display:flex; flex-wrap:wrap; gap:3px; width:max-content; max-width:calc(100% - 4px);
   padding:5px; background:#fffdf7; border:1px solid #a0b6ba; border-radius:10px;
@@ -20,7 +23,7 @@
 .object-toolbar button:hover { background:#dcebed; }
 .object-toolbar .object-apply { color:white; background:#315e69; }
 .object-rotation { display:flex; flex-basis:100%; align-items:center; justify-content:center; gap:3px; }
-.object-rotation input { width:55px; min-height:32px; padding:3px; border:1px solid #b5c4c7; border-radius:5px; font:inherit; }
+.object-toolbar [hidden] { display:none; }
 .object-swap-dialog { width:min(430px,calc(100% - 28px)); max-height:80dvh; overflow:auto; padding:20px; border:1px solid #a0b6ba; border-radius:16px; background:#fffdf7; color:#254752; }
 .object-swap-dialog::backdrop { background:#182f4266; }
 .object-swap-dialog h2 { font-size:17px; }
@@ -31,3 +34,4 @@
 .diary-demo #properties > .size-row,
 .diary-demo #diary-photo-fields > .size-row { display:none; }
 @media (pointer:coarse) { .object-resize-handle { width:40px; height:40px; } .object-resize-handle::after { inset:13px; } }
+@media (pointer:coarse) { .is-rotating .object-resize-handle::after { inset:8px; } }

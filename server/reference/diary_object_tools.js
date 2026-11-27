@@ -15,24 +15,18 @@ function createDiaryObjectEditor() {
     node.textContent = text; node.title = label; node.setAttribute('aria-label', label);
     node.addEventListener('click', action); parent.append(node); return node;
   };
-  const rotate = button('↻ 회전', '15도 회전하고 각도 조절 열기', () => turn(15));
+  const rotate = button('↻ 회전', '모서리를 드래그하는 회전 모드 열기', startRotation);
   const swap = button('바꾸기', '선택한 사진 또는 스티커 바꾸기', replaceObject);
   const remove = button('삭제', '이 페이지에서 선택한 개체 제거', removeObject);
   const rotationPanel = document.createElement('div'); rotationPanel.className = 'object-rotation';
   rotationPanel.hidden = true; toolbar.append(rotationPanel);
-  button('−15°', '왼쪽으로 15도 회전', () => turn(-15), rotationPanel);
-  const angle = document.createElement('input'); angle.type = 'number';
-  angle.min = '-180'; angle.max = '180'; angle.step = '1';
-  angle.setAttribute('aria-label', '회전 각도'); rotationPanel.append(angle);
-  angle.addEventListener('input', () => {
-    if (!angle.value || !Number.isFinite(angle.valueAsNumber)) return;
-    setRotation(clamp(angle.valueAsNumber, -180, 180));
-  });
   button('적용', '회전 각도 적용', () => finishRotation(true), rotationPanel).className = 'object-apply';
   button('취소', '회전 취소', () => finishRotation(false), rotationPanel);
+  const handles = [];
   for (const [name, sx, sy] of [['nw', -1, -1], ['ne', 1, -1], ['sw', -1, 1], ['se', 1, 1]]) {
     const handle = button('', '모서리를 드래그해 크기 조절. 방향키로도 조절할 수 있어요.', () => {}, frame);
     handle.className = 'object-resize-handle ' + name;
+    handles.push(handle);
     handle.addEventListener('pointerdown', event => startResize(event, handle, sx, sy));
     handle.addEventListener('pointermove', resize);
     handle.addEventListener('pointerup', endResize);
@@ -42,7 +36,8 @@ function createDiaryObjectEditor() {
       const step = {ArrowUp:1, ArrowRight:1, ArrowDown:-1, ArrowLeft:-1}[event.key];
       if (!step || !valid()) return;
       event.preventDefault(); event.stopPropagation();
-      changeSize(selection.item.size + step * (event.shiftKey ? 5 : 1));
+      if (rotationStart !== null) setRotation((selection.item.rotation ?? 0) + step * (event.shiftKey ? 15 : 1));
+      else changeSize(selection.item.size + step * (event.shiftKey ? 5 : 1));
     });
   }
   for (const type of ['pointerdown', 'pointermove', 'pointerup', 'click', 'keydown']) {
@@ -74,23 +69,34 @@ function createDiaryObjectEditor() {
     } else { renderDiary(); syncDiaryControls(); }
     sync();
   }
-  function turn(degrees) {
-    if (!valid()) return;
-    setRotation((selection.item.rotation ?? 0) + degrees);
+  function rotationControls() {
+    const active = rotationStart !== null;
+    overlay.classList.toggle('is-rotating', active);
+    rotate.hidden = swap.hidden = remove.hidden = active;
+    rotationPanel.hidden = !active;
+    toolbar.setAttribute('aria-label', active ? '모서리를 드래그해 회전한 뒤 적용 또는 취소' : '선택한 개체 편집');
+    for (const handle of handles) {
+      const label = active ? '모서리를 드래그해 회전. 방향키로도 조절할 수 있어요.' : '모서리를 드래그해 크기 조절. 방향키로도 조절할 수 있어요.';
+      handle.title = label; handle.setAttribute('aria-label', label);
+    }
+    sync();
+  }
+  function startRotation() {
+    if (!valid() || rotationStart !== null) return;
+    endResize(); resetPlacement();
+    rotationStart = selection.item.rotation ?? 0;
+    rotationControls(); handles[0].focus({preventScroll:true});
   }
   function setRotation(value) {
-    if (!valid()) return;
-    if (rotationStart === null) rotationStart = selection.item.rotation ?? 0;
-    selection.item.rotation = Math.round(((value + 540) % 360) - 180);
-    rotationPanel.hidden = false; rotate.setAttribute('aria-pressed', 'true');
-    if (document.activeElement !== angle) angle.value = selection.item.rotation;
+    if (!valid() || rotationStart === null) return;
+    selection.item.rotation = Math.round(((((value + 180) % 360) + 360) % 360 - 180) * 10) / 10;
     repaint();
   }
   function finishRotation(apply) {
     if (rotationStart !== null && selection) {
+      endResize();
       if (!apply) selection.item.rotation = rotationStart;
-      rotationStart = null; rotationPanel.hidden = true; rotate.setAttribute('aria-pressed', 'false');
-      repaint();
+      rotationStart = null; rotationControls(); repaint();
     }
   }
   function geometry() {
@@ -112,18 +118,34 @@ function createDiaryObjectEditor() {
     repaint();
   }
   function startResize(event, handle, sx, sy) {
-    if (!valid() || gesture || event.button !== 0) return;
+    if (!valid() || gesture || !event.isPrimary || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation(); resetPlacement();
     const g = geometry(), cos = Math.cos(g.angle), sin = Math.sin(g.angle);
     const vx = cos*sx*g.width - sin*sy*g.height, vy = sin*sx*g.width + cos*sy*g.height;
     gesture = {handle, id:event.pointerId, startX:event.clientX, startY:event.clientY,
       item:selection.item, origin:{...selection.item}, g, vx, vy, ax:g.cx-vx/2, ay:g.cy-vy/2};
+    if (rotationStart !== null) {
+      const bounds = plane.getBoundingClientRect();
+      gesture.rotating = true;
+      gesture.radians = Math.atan2((event.clientY-bounds.top)/g.scaleY-g.cy, (event.clientX-bounds.left)/g.scaleX-g.cx);
+      gesture.degrees = selection.item.rotation ?? 0;
+    }
     handle.setPointerCapture(event.pointerId);
   }
   function resize(event) {
     if (!gesture || event.pointerId !== gesture.id || !valid()) return;
     event.preventDefault();
     const {g, vx, vy, ax, ay, origin, startX, startY} = gesture;
+    if (gesture.rotating) {
+      const bounds = plane.getBoundingClientRect();
+      const dx = (event.clientX-bounds.left)/g.scaleX-g.cx, dy = (event.clientY-bounds.top)/g.scaleY-g.cy;
+      // Ignore the undefined angle at the center; unwrap each step across +/-180 degrees.
+      if (Math.hypot(dx,dy) < 8) return;
+      const radians = Math.atan2(dy,dx);
+      const delta = Math.atan2(Math.sin(radians-gesture.radians),Math.cos(radians-gesture.radians));
+      gesture.degrees += delta*180/Math.PI; gesture.radians = radians;
+      setRotation(gesture.degrees); return;
+    }
     const dx = (event.clientX-startX)/g.scaleX, dy = (event.clientY-startY)/g.scaleY;
     const photo = selection.kind === 'photo';
     const size = clamp(origin.size*(1+(dx*vx+dy*vy)/(vx*vx+vy*vy)), photo?20:12, photo?85:86);
@@ -219,7 +241,7 @@ function createDiaryObjectEditor() {
   },true);
   document.addEventListener('keydown',event=>{
     if(event.key==='Escape' && !picker.open && valid()) {
-      if(gesture) cancelResize(); else if(rotationStart!==null) finishRotation(false); else choose(null);
+      if(rotationStart!==null) finishRotation(false); else if(gesture) cancelResize(); else choose(null);
     }
   },true);
   window.addEventListener('blur',()=>{endResize();});
